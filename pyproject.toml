@@ -50,7 +50,7 @@ dev = [
 khonliang = "khonliang.cli:main"
 
 [project.urls]
-Repository = "https://github.com/ttoll/ollama-khonliang"
+Repository = "https://github.com/tolldog/ollama-khonliang"
 
 [tool.setuptools.packages.find]
 where = ["src"]
