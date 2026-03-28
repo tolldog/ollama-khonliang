@@ -1,0 +1,8 @@
+{"message": "My server is completely down and we have clients waiting!", "expected_role": "triage"}
+{"message": "How do I reset my 2FA?", "expected_role": "knowledge"}
+{"message": "I can't login, getting an error 500", "expected_role": "triage"}
+{"message": "What is the difference between the free and pro plan?", "expected_role": "knowledge"}
+{"message": "This is still not resolved, I need to speak to a manager", "expected_role": "escalation"}
+{"message": "How to export my data?", "expected_role": "knowledge"}
+{"message": "The app keeps crashing on startup", "expected_role": "triage"}
+{"message": "Please escalate this, I'm not happy with the response", "expected_role": "escalation"}
