@@ -35,6 +35,9 @@ lint:
     - linters: [mypy]
       paths:
         - src/**
+    - linters: [bandit]
+      paths:
+        - tests/**
 actions:
   enabled:
     - trunk-announce
