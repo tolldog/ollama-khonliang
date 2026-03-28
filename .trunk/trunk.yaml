@@ -32,6 +32,8 @@ lint:
     - isort
     - checkov
   ignore:
+    # mypy disabled until stub packages are installed (types-requests, etc.)
+    # TODO: narrow to specific paths and enable strict checking
     - linters: [mypy]
       paths:
         - src/**
