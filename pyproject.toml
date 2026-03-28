@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.backends._legacy:_Backend"
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "ollama-khonliang"
@@ -9,22 +9,27 @@ description = "A llama rancher — multi-agent LLM orchestration framework for O
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
-keywords = ["ollama", "llm", "agents", "multi-agent", "orchestration", "consensus", "rag"]
+keywords = [
+  "ollama",
+  "llm",
+  "agents",
+  "multi-agent",
+  "orchestration",
+  "consensus",
+  "rag",
+]
 classifiers = [
-    "Development Status :: 3 - Alpha",
-    "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
-    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
-dependencies = [
-    "aiohttp>=3.9",
-    "requests>=2.31",
-]
+dependencies = ["aiohttp>=3.9", "requests>=2.31"]
 
 [project.optional-dependencies]
 rag = ["fastembed>=0.2", "semantic-router>=0.0.47"]
@@ -32,18 +37,18 @@ mattermost = ["websocket-client>=1.7"]
 gateway = ["redis>=5.0"]
 discovery = ["zeroconf>=0.131"]
 all = [
-    "fastembed>=0.2",
-    "semantic-router>=0.0.47",
-    "websocket-client>=1.7",
-    "redis>=5.0",
-    "zeroconf>=0.131",
+  "fastembed>=0.2",
+  "semantic-router>=0.0.47",
+  "websocket-client>=1.7",
+  "redis>=5.0",
+  "zeroconf>=0.131",
 ]
 dev = [
-    "pytest>=7.0",
-    "pytest-asyncio>=0.21",
-    "pytest-cov",
-    "ruff>=0.4",
-    "mypy>=1.8",
+  "pytest>=7.0",
+  "pytest-asyncio>=0.21",
+  "pytest-cov",
+  "ruff>=0.4",
+  "mypy>=1.8",
 ]
 
 [project.scripts]

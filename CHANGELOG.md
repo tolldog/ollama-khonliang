@@ -3,6 +3,7 @@
 ## [0.1.0] - 2026-03-27
 
 ### Added
+
 - Initial release extracted from autostock trading platform
 - Async Ollama client with typed errors, retry, streaming, and JSON generation
 - Model pool with role-based mapping and connection reuse

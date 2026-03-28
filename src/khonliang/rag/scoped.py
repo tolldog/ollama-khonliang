@@ -332,8 +332,7 @@ class ScopedRetriever:
             where = " AND ".join(conditions)
             params.append(limit)
 
-            rows = conn.execute(
-                f"""
+            sql = f"""
                 SELECT d.id, d.scope, d.agent_id, d.collection,
                        d.title, d.content, d.metadata,
                        bm25(rag_scoped_fts) AS score
@@ -342,9 +341,8 @@ class ScopedRetriever:
                 WHERE {where}
                 ORDER BY score
                 LIMIT ?
-                """,
-                params,
-            ).fetchall()
+                """  # nosec B608 - WHERE clause built from parameterized conditions
+            rows = conn.execute(sql, params).fetchall()
             conn.close()
 
             return [

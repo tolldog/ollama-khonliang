@@ -169,7 +169,10 @@ class MattermostBot:
             self._ws.send(json.dumps({
                 "seq": int(time.time() * 1000) % 1_000_000,
                 "action": "user_typing",
-                "data": {"channel_id": channel_id, **({"parent_id": parent_id} if parent_id else {})},
+                "data": {
+                    "channel_id": channel_id,
+                    **({"parent_id": parent_id} if parent_id else {}),
+                },
             }))
             return True
         except Exception as e:

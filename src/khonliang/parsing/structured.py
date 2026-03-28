@@ -36,8 +36,8 @@ items_key="trades", valid_actions=["buy", "sell"].
 import json
 import logging
 import re
-from dataclasses import dataclass, field, asdict
-from typing import Any, Callable, Dict, List, Optional, Type
+from dataclasses import asdict, dataclass, field
+from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 

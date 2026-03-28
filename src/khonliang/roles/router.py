@@ -152,8 +152,8 @@ class BaseRouter:
             try:
                 if predicate(message):
                     return role, "callable_rule"
-            except Exception:
-                pass
+            except Exception as e:  # nosec B110 - skip broken predicates
+                logger.warning(f"Callable rule error in route_with_reason: {e}")
 
         for pattern, role in self._regex_rules:
             if pattern.search(message):
@@ -169,7 +169,7 @@ class BaseRouter:
                 result, score = self._semantic_router.classify_with_score(message)
                 if result != self._semantic_router._fallback:
                     return result, f"semantic:{score:.3f}"
-            except Exception:
-                pass
+            except Exception as e:  # nosec B110 - fallback on semantic errors
+                logger.warning(f"Semantic router error in route_with_reason: {e}")
 
         return self.fallback_role, "fallback"

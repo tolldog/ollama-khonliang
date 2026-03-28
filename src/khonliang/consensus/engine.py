@@ -100,7 +100,10 @@ class ConsensusEngine:
         winner_votes = [v for v in votes if v.action == winner]
         score_str = ", ".join(f"{k}={v:.2f}" for k, v in sorted(scores.items()))
         agents = ", ".join(v.agent_id for v in winner_votes)
-        return f"{winner} ({len(winner_votes)}/{len(votes)} votes, agents: {agents}, scores: {score_str})"
+        return (
+            f"{winner} ({len(winner_votes)}/{len(votes)} votes, "
+            f"agents: {agents}, scores: {score_str})"
+        )
 
     def get_vote_summary(self, votes: List[AgentVote]) -> dict:
         by_action: Dict[str, List[str]] = {}

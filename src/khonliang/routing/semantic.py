@@ -39,7 +39,7 @@ Usage:
 
 import logging
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +135,8 @@ class SemanticIntentRouter:
             return self._fallback, 0.0
 
         self._ensure_router()
+        if self._router is None:
+            return self._fallback, 0.0
 
         t0 = time.monotonic()
         result = self._router(message)

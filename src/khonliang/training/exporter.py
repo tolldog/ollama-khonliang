@@ -21,7 +21,6 @@ import json
 import logging
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -188,7 +187,10 @@ class TrainingExporter:
                     continue
 
                 examples.append(TrainingExample(
-                    instruction=f"You are a {self.agent_name}. Answer the user's question helpfully and concisely.",
+                    instruction=(
+                        f"You are a {self.agent_name}. "
+                        "Answer the user's question helpfully and concisely."
+                    ),
                     input_text=row["prompt"],
                     output=output,
                     source="feedback",
@@ -225,7 +227,11 @@ class TrainingExporter:
 
             for row in rows:
                 examples.append(TrainingExample(
-                    instruction=f"You are a {self.agent_name} ({row['role'] or 'general'}). Answer the user's question.",
+                    instruction=(
+                        f"You are a {self.agent_name} "
+                        f"({row['role'] or 'general'}). "
+                        "Answer the user's question."
+                    ),
                     input_text=row["message"],
                     output=row["response"],
                     source="interaction",
