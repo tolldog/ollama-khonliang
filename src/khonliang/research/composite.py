@@ -174,10 +174,12 @@ class CompositeResearcher(BaseResearcher):
 
         results = []
         for item in gathered:
-            if isinstance(item, list):
+            if isinstance(item, BaseException):
+                logger.debug(f"Engine query failed: {type(item).__name__}: {item}")
+            elif isinstance(item, list):
                 results.extend(item)
-            elif isinstance(item, Exception):
-                logger.debug(f"Engine query failed: {item}")
+            else:
+                logger.debug(f"Engine returned unexpected type: {type(item)}")
 
         return results
 

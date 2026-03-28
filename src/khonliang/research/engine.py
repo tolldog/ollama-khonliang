@@ -136,10 +136,13 @@ class BaseEngine(ABC):
         self._request_count += 1
 
         try:
-            results = await asyncio.wait_for(
-                self.execute(query, **kwargs),
-                timeout=self.timeout,
-            )
+            if self.timeout > 0:
+                results = await asyncio.wait_for(
+                    self.execute(query, **kwargs),
+                    timeout=self.timeout,
+                )
+            else:
+                results = await self.execute(query, **kwargs)
             # Tag results with engine source
             for r in results:
                 if not r.source:
@@ -150,7 +153,7 @@ class BaseEngine(ABC):
             self._error_count += 1
             return []
         except Exception as e:
-            logger.warning(f"Engine '{self.name}' error: {e}")
+            logger.warning(f"Engine '{self.name}' error on '{query[:40]}': {e}")
             self._error_count += 1
             return []
 

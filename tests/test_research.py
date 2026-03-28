@@ -179,7 +179,7 @@ class MockEngineA(BaseEngine):
 
     async def execute(self, query, **kwargs):
         return [
-            EngineResult(title=f"A: {query}", content="from engine A", source="a"),
+            EngineResult(title=f"A: {query}", content="from engine A"),
         ]
 
 
@@ -190,7 +190,7 @@ class MockEngineB(BaseEngine):
 
     async def execute(self, query, **kwargs):
         return [
-            EngineResult(title=f"B: {query}", content="from engine B", source="b"),
+            EngineResult(title=f"B: {query}", content="from engine B"),
         ]
 
 
