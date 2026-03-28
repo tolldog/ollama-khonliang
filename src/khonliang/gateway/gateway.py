@@ -4,7 +4,7 @@ Agent gateway — routes messages between agents via Redis streams.
 Provides AgentGateway, a pub/sub message router with:
 - Per-agent Redis streams for async communication
 - Session tracking
-- Activation-rule enforcement
+- Activation-rule registration (query via is_agent_active)
 - Fail-open semantics (Redis outage does not block agents)
 
 Example:
@@ -167,35 +167,46 @@ class AgentGateway:
         agent_id: str,
         count: int = 10,
         last_id: str = "0-0",
-    ) -> List[AgentMessage]:
+    ) -> tuple[List[AgentMessage], str]:
         """
-        Read messages from an agent's stream.
+        Read messages from an agent's stream after last_id.
+
+        Uses exclusive lower bound so the same last_id entry is not returned
+        again. Returns (messages, new_last_id) so callers can advance their
+        cursor.
 
         Args:
             agent_id: Agent whose stream to read
             count:    Max messages to return
-            last_id:  Read messages after this stream ID
+            last_id:  Read messages strictly after this stream ID
 
-        Returns empty list on Redis failure (fail-open).
+        Returns:
+            Tuple of (messages, last_entry_id). On failure returns ([], last_id).
         """
         if self._redis is None:
-            return []
+            return [], last_id
 
         stream_key = f"{self.stream_prefix}{agent_id}"
+        # Exclusive lower bound: "(" prefix tells Redis XRANGE to exclude
+        min_id = f"({last_id}" if last_id != "0-0" else "-"
         try:
-            entries = await self._redis.xrange(stream_key, min=last_id, count=count)
+            entries = await self._redis.xrange(
+                stream_key, min=min_id, count=count
+            )
             messages = []
-            for _entry_id, fields in entries:
+            new_last_id = last_id
+            for entry_id, fields in entries:
+                new_last_id = entry_id
                 try:
                     data = json.loads(fields["data"])
                     messages.append(AgentMessage.from_dict(data))
                     self._metrics.record_received()
                 except (json.JSONDecodeError, KeyError) as e:
                     logger.warning(f"Malformed message in '{stream_key}': {e}")
-            return messages
+            return messages, new_last_id
         except Exception as e:
             logger.warning(f"Failed to read from '{agent_id}': {e}")
-            return []
+            return [], last_id
 
     async def broadcast(
         self, message: AgentMessage, agent_ids: Optional[List[str]] = None,
@@ -227,6 +238,7 @@ class AgentGateway:
         """
         Poll an agent's stream and dispatch to the registered handler.
 
+        Advances the cursor after each batch so messages are not re-processed.
         Runs until the gateway is stopped.
         """
         handler = self._message_handlers.get(agent_id)
@@ -234,13 +246,18 @@ class AgentGateway:
             logger.warning(f"No handler registered for '{agent_id}'")
             return
 
-        last_id = "$"
+        last_id = "0-0"
         while self._running:
             try:
-                messages = await self.receive(agent_id, count=10, last_id=last_id)
+                messages, last_id = await self.receive(
+                    agent_id, count=10, last_id=last_id
+                )
                 for msg in messages:
                     try:
-                        await handler(msg) if asyncio.iscoroutinefunction(handler) else handler(msg)
+                        if asyncio.iscoroutinefunction(handler):
+                            await handler(msg)
+                        else:
+                            handler(msg)
                     except Exception as e:
                         logger.error(f"Handler error for '{agent_id}': {e}")
             except Exception as e:

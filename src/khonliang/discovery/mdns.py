@@ -89,11 +89,10 @@ class ServiceAdvertiser:
     def _get_local_ip(self) -> str:
         for attempt in range(3):
             try:
-                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                s.settimeout(2)
-                s.connect(("8.8.8.8", 80))
-                ip = s.getsockname()[0]
-                s.close()
+                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                    s.settimeout(2)
+                    s.connect(("8.8.8.8", 80))
+                    ip = s.getsockname()[0]
                 if ip and ip != "127.0.0.1":
                     return ip
             except Exception as e:

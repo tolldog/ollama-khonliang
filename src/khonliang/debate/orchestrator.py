@@ -228,7 +228,12 @@ class DebateOrchestrator:
         target_vote: AgentVote,
         round_num: int,
     ) -> Optional[AgentVote]:
-        """Send a challenge and get a reconsidered vote."""
+        """Send a challenge and get a reconsidered vote.
+
+        Uses config.challenge_timeout as the deadline for the reconsider call.
+        """
+        import asyncio
+
         target_agent = self.agents.get(target_id)
         if target_agent is None:
             logger.warning(f"Agent {target_id} not found for debate")
@@ -246,10 +251,13 @@ class DebateOrchestrator:
         )
 
         try:
-            updated_vote = await target_agent.reconsider(
-                original_vote=target_vote,
-                debate_context=challenge_msg,
-                round_num=round_num,
+            updated_vote = await asyncio.wait_for(
+                target_agent.reconsider(
+                    original_vote=target_vote,
+                    debate_context=challenge_msg,
+                    round_num=round_num,
+                ),
+                timeout=self.config.challenge_timeout,
             )
             logger.debug(
                 f"Debate round {round_num}: {target_id} "

@@ -5,7 +5,9 @@ Convenience functions that operate on an AgentGateway instance:
 list sessions, inspect history, send messages, and challenge agents.
 """
 
+import asyncio
 import logging
+import time
 from typing import Any, Dict, List, Optional
 
 from khonliang.gateway.gateway import AgentGateway
@@ -38,6 +40,8 @@ async def sessions_history(
     """
     Retrieve message history for a session from an agent's stream.
 
+    Reads from the beginning of the stream and filters by session_id.
+
     Args:
         gateway:    The AgentGateway instance
         session_id: Session to filter for
@@ -45,9 +49,9 @@ async def sessions_history(
         count:      Max messages to retrieve
 
     Returns:
-        List of AgentMessages belonging to the session, newest last.
+        List of AgentMessages belonging to the session.
     """
-    all_messages = await gateway.receive(agent_id, count=count)
+    all_messages, _ = await gateway.receive(agent_id, count=count)
     return [m for m in all_messages if m.session_id == session_id]
 
 
@@ -81,7 +85,9 @@ async def sessions_send(
     if success:
         session_info = gateway.get_session(session_id)
         if session_info is not None:
-            session_info["message_count"] = session_info.get("message_count", 0) + 1
+            session_info["message_count"] = (
+                session_info.get("message_count", 0) + 1
+            )
     return success
 
 
@@ -95,8 +101,7 @@ async def challenge_agent(
     """
     Send a challenge message to an agent and wait for a response.
 
-    This is a simple request/response pattern: send a message, then
-    poll the agent's stream for a reply.
+    Uses a cursor to avoid re-scanning old messages on each poll iteration.
 
     Args:
         gateway:    The AgentGateway instance
@@ -108,9 +113,6 @@ async def challenge_agent(
     Returns:
         The agent's reply AgentMessage, or None on timeout.
     """
-    import asyncio
-    import time
-
     msg = AgentMessage(
         agent_id=agent_id,
         content=challenge,
@@ -123,10 +125,13 @@ async def challenge_agent(
         logger.warning(f"Failed to send challenge to '{agent_id}'")
         return None
 
-    # Poll for a reply
+    # Poll for a reply, advancing cursor each iteration
     deadline = time.time() + timeout
+    last_id = "0-0"
     while time.time() < deadline:
-        messages = await gateway.receive(agent_id, count=10)
+        messages, last_id = await gateway.receive(
+            agent_id, count=10, last_id=last_id
+        )
         for m in messages:
             if m.reply_to == msg.message_id:
                 return m

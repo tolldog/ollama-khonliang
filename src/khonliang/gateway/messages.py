@@ -65,6 +65,22 @@ class AgentMessage:
             priority=data.get("priority", 0),
         )
 
+    @classmethod
+    def create_request(
+        cls,
+        source_agent: str,
+        target_agent: str,
+        payload: Dict[str, Any],
+    ) -> "AgentMessage":
+        """Factory for directed request messages."""
+        import json
+
+        return cls(
+            agent_id=target_agent,
+            content=json.dumps(payload),
+            metadata={"source_agent": source_agent, "type": "request"},
+        )
+
 
 class GatewayMetrics:
     """

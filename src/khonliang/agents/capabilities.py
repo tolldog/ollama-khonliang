@@ -65,6 +65,12 @@ class CapabilityRegistry:
     """
 
     def __init__(self, redis_client: Optional[Any] = None):
+        """
+        Args:
+            redis_client: Optional synchronous Redis client for persistence.
+                          Must support hset/hget/hdel/hgetall (e.g. redis.Redis).
+                          Do NOT pass a redis.asyncio client.
+        """
         self._redis = redis_client
         self._redis_key = "khonliang:agent:capabilities"
         self._capabilities: Dict[str, List[AgentCapability]] = {}
