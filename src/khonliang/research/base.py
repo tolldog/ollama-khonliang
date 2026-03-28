@@ -44,6 +44,7 @@ class BaseResearcher(ABC):
 
     name: str = "base"
     capabilities: List[str] = []
+    max_concurrent: int = 2  # max parallel tasks for this researcher
 
     def can_handle(self, task_type: str) -> bool:
         """Check if this researcher can handle a task type."""
