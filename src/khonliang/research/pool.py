@@ -56,6 +56,9 @@ class ResearchPool:
         self._on_result: Optional[Callable[[ResearchResult], None]] = None
         self._lock = threading.Lock()
 
+        # Per-researcher semaphores (created on start)
+        self._researcher_sems: Dict[str, asyncio.Semaphore] = {}
+
         # Stats
         self._completed_count = 0
         self._failed_count = 0
@@ -223,8 +226,26 @@ class ResearchPool:
             self._loop.close()
 
     async def _process_loop(self, workers: int) -> None:
-        """Async task processing loop."""
-        sem = asyncio.Semaphore(workers)
+        """Async task processing loop — per-researcher concurrency."""
+        # Global semaphore caps total concurrent tasks
+        global_sem = asyncio.Semaphore(workers)
+
+        # Create per-researcher semaphores
+        for name, researcher in self._researchers.items():
+            self._researcher_sems[name] = asyncio.Semaphore(
+                researcher.max_concurrent
+            )
+
+        async def _worker(task):
+            researcher_name = self._capability_map.get(task.task_type, "")
+            researcher_sem = self._researcher_sems.get(researcher_name)
+
+            async with global_sem:
+                if researcher_sem:
+                    async with researcher_sem:
+                        await self._process_task(task)
+                else:
+                    await self._process_task(task)
 
         while self._running:
             task = self._next_task()
@@ -232,8 +253,7 @@ class ResearchPool:
                 await asyncio.sleep(0.5)
                 continue
 
-            async with sem:
-                await self._process_task(task)
+            asyncio.create_task(_worker(task))
 
     def _next_task(self) -> Optional[ResearchTask]:
         """Pop the highest-priority task from the queue."""

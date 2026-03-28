@@ -1,8 +1,11 @@
-"""Tests for the research pool system."""
+"""Tests for the research pool and engine system."""
 
+import asyncio
 import time
 
 from khonliang.research.base import BaseResearcher
+from khonliang.research.composite import CompositeResearcher
+from khonliang.research.engine import BaseEngine, EngineResult
 from khonliang.research.models import ResearchResult, ResearchStatus, ResearchTask
 from khonliang.research.pool import ResearchPool
 from khonliang.research.trigger import ResearchTrigger
@@ -162,3 +165,143 @@ def test_cancel_task():
     ))
     assert pool.cancel(task_id)
     assert pool.get_status()["queue_size"] == 0
+
+
+# ------------------------------------------------------------------
+# Engine and CompositeResearcher tests
+# ------------------------------------------------------------------
+
+
+class MockEngineA(BaseEngine):
+    name = "engine_a"
+    max_threads = 2
+    rate_limit = 0.0
+
+    async def execute(self, query, **kwargs):
+        return [
+            EngineResult(title=f"A: {query}", content="from engine A", source="a"),
+        ]
+
+
+class MockEngineB(BaseEngine):
+    name = "engine_b"
+    max_threads = 3
+    rate_limit = 0.0
+
+    async def execute(self, query, **kwargs):
+        return [
+            EngineResult(title=f"B: {query}", content="from engine B", source="b"),
+        ]
+
+
+class MockSlowEngine(BaseEngine):
+    name = "slow"
+    max_threads = 1
+    timeout = 1.0
+
+    async def execute(self, query, **kwargs):
+        await asyncio.sleep(5)  # will timeout
+        return []
+
+
+def test_engine_query():
+    engine = MockEngineA()
+    results = asyncio.run(engine.query("test"))
+    assert len(results) == 1
+    assert results[0].source == "engine_a"
+
+
+def test_engine_stats():
+    engine = MockEngineA()
+    asyncio.run(engine.query("test"))
+    stats = engine.get_stats()
+    assert stats["requests"] == 1
+    assert stats["errors"] == 0
+
+
+def test_engine_timeout():
+    engine = MockSlowEngine()
+    results = asyncio.run(engine.query("test"))
+    assert results == []
+    assert engine.get_stats()["errors"] == 1
+
+
+def test_composite_fan_out():
+    class TestComposite(CompositeResearcher):
+        name = "test_composite"
+        capabilities = ["test_search"]
+
+    researcher = TestComposite()
+    researcher.add_engine(MockEngineA())
+    researcher.add_engine(MockEngineB())
+
+    task = ResearchTask(task_type="test_search", query="hello")
+    result = asyncio.run(researcher.research(task))
+
+    assert "engine_a" in result.metadata["engines_used"]
+    assert "engine_b" in result.metadata["engines_used"]
+    assert result.metadata["total_raw"] >= 2
+    assert "A: hello" in result.content
+    assert "B: hello" in result.content
+
+
+def test_composite_dedup():
+    class DupEngine(BaseEngine):
+        name = "dup"
+        max_threads = 1
+
+        async def execute(self, query, **kwargs):
+            return [
+                EngineResult(
+                    title="Same", content="same", url="http://example.com"
+                ),
+            ]
+
+    class TestComposite(CompositeResearcher):
+        name = "dedup_test"
+        capabilities = ["test"]
+
+    researcher = TestComposite()
+    researcher.add_engine(DupEngine())
+
+    # Use two queries — both produce the same URL
+    researcher.build_queries = lambda task: ["q1", "q2"]
+
+    task = ResearchTask(task_type="test", query="test")
+    result = asyncio.run(researcher.research(task))
+
+    # Should be deduped to 1
+    assert result.metadata["after_dedup"] == 1
+
+
+def test_composite_max_concurrent():
+    class TestComposite(CompositeResearcher):
+        name = "concurrent_test"
+        capabilities = ["test"]
+
+    researcher = TestComposite()
+    researcher.add_engine(MockEngineA())  # 2 threads
+    researcher.add_engine(MockEngineB())  # 3 threads
+
+    assert researcher.max_concurrent == 5
+
+
+def test_composite_with_filter():
+    class TestComposite(CompositeResearcher):
+        name = "filter_test"
+        capabilities = ["test"]
+
+    researcher = TestComposite()
+    researcher.add_engine(MockEngineA())
+    researcher.add_engine(MockEngineB())
+
+    # Filter that only keeps engine_a results
+    researcher.set_filter(
+        lambda results, task: [r for r in results if r.source == "engine_a"]
+    )
+
+    task = ResearchTask(task_type="test", query="hello")
+    result = asyncio.run(researcher.research(task))
+
+    assert "A: hello" in result.content
+    assert "B: hello" not in result.content
