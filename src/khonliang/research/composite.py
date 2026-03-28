@@ -54,6 +54,9 @@ class CompositeResearcher(BaseResearcher):
 
     def add_engine(self, engine: BaseEngine) -> None:
         """Add an engine to this researcher."""
+        old = self._engines.get(engine.name)
+        if old is not None:
+            old.stop()
         self._engines[engine.name] = engine
         # Update max_concurrent to reflect total engine capacity
         self.max_concurrent = sum(e.max_threads for e in self._engines.values())
@@ -162,13 +165,19 @@ class CompositeResearcher(BaseResearcher):
 
     async def _fan_out(self, queries: List[str]) -> List[EngineResult]:
         """Run all queries across all engines concurrently."""
+        if not self._engines or not queries:
+            return []
+
+        sem = asyncio.Semaphore(self.max_concurrent or 1)
+
+        async def _limited(coro):
+            async with sem:
+                return await coro
+
         tasks = []
         for query in queries:
             for engine in self._engines.values():
-                tasks.append(engine.query(query))
-
-        if not tasks:
-            return []
+                tasks.append(_limited(engine.query(query)))
 
         gathered = await asyncio.gather(*tasks, return_exceptions=True)
 

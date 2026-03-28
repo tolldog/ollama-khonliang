@@ -82,9 +82,12 @@ class BaseEngine(ABC):
         self._last_request: float = 0.0
         self._request_count: int = 0
         self._error_count: int = 0
+        self._rate_lock: asyncio.Lock = asyncio.Lock()
 
     def start(self) -> None:
         """Initialize the thread pool."""
+        if self._pool is not None:
+            self.stop()
         self._pool = ThreadPoolExecutor(
             max_workers=self.max_threads,
             thread_name_prefix=f"engine-{self.name}",
@@ -127,13 +130,14 @@ class BaseEngine(ABC):
         rate limiting, timeout, and error tracking.
         """
         # Rate limiting
-        if self.rate_limit > 0:
-            elapsed = time.monotonic() - self._last_request
-            if elapsed < self.rate_limit:
-                await asyncio.sleep(self.rate_limit - elapsed)
+        async with self._rate_lock:
+            if self.rate_limit > 0:
+                elapsed = time.monotonic() - self._last_request
+                if elapsed < self.rate_limit:
+                    await asyncio.sleep(self.rate_limit - elapsed)
 
-        self._last_request = time.monotonic()
-        self._request_count += 1
+            self._last_request = time.monotonic()
+            self._request_count += 1
 
         try:
             if self.timeout > 0:
@@ -166,7 +170,7 @@ class BaseEngine(ABC):
         """
         if self._pool is None:
             self.start()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return loop.run_in_executor(self._pool, func, *args)
 
     def get_stats(self) -> Dict[str, Any]:

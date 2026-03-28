@@ -77,6 +77,13 @@ class ResearchPool:
         self._researchers[researcher.name] = researcher
         for cap in researcher.capabilities:
             self._capability_map[cap] = researcher.name
+
+        # If pool is already running, create the per-researcher semaphore now
+        if self._running and self._loop and researcher.name not in self._researcher_sems:
+            self._researcher_sems[researcher.name] = asyncio.Semaphore(
+                researcher.max_concurrent
+            )
+
         logger.info(
             f"Registered researcher '{researcher.name}': "
             f"{researcher.capabilities}"
@@ -223,6 +230,12 @@ class ResearchPool:
         except Exception as e:
             logger.error(f"Research pool error: {e}")
         finally:
+            # Gather any still-pending tasks before closing the loop
+            pending = asyncio.all_tasks(self._loop)
+            if pending:
+                self._loop.run_until_complete(
+                    asyncio.gather(*pending, return_exceptions=True)
+                )
             self._loop.close()
 
     async def _process_loop(self, workers: int) -> None:
