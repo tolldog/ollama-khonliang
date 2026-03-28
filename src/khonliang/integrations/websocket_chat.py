@@ -60,7 +60,10 @@ class ChatSession:
         self.history: List[Dict[str, str]] = []
         self.message_count: int = 0
 
-    def add_exchange(self, user_msg: str, agent_msg: str, role: str) -> str:
+    def add_exchange(
+        self, user_msg: str, agent_msg: str, role: str,
+        knowledge_entry_ids: Optional[List[str]] = None,
+    ) -> str:
         """Record a message exchange. Returns a message ID."""
         msg_id = str(uuid.uuid4())[:8]
         self.history.append({
@@ -68,6 +71,7 @@ class ChatSession:
             "user": user_msg,
             "agent": agent_msg,
             "role": role,
+            "knowledge_entry_ids": knowledge_entry_ids or [],
         })
         self.message_count += 1
         return msg_id
@@ -99,6 +103,9 @@ class ChatServer:
                 "websockets package required. Install with: "
                 "pip install websockets"
             )
+
+        if not roles:
+            raise ValueError("roles must be a non-empty dict")
 
         self.roles = roles
         self.router = router
@@ -154,10 +161,10 @@ class ChatServer:
                         "content": "Invalid JSON",
                     }))
                 except Exception as e:
-                    logger.error(f"Error handling message: {e}")
+                    logger.error(f"Error handling message: {e}", exc_info=True)
                     await websocket.send(json.dumps({
                         "type": "error",
-                        "content": str(e),
+                        "content": "Internal server error",
                     }))
         finally:
             del self._sessions[session_id]
@@ -171,6 +178,8 @@ class ChatServer:
 
         if msg_type == "message":
             return await self._handle_chat(msg, session)
+        elif msg_type == "search":
+            return self._handle_search(msg, session)
         elif msg_type == "feedback":
             return self._handle_feedback(msg, session)
         elif msg_type == "history":
@@ -203,20 +212,25 @@ class ChatServer:
         )
         response_text = result.get("response", "")
 
-        # Record exchange
-        msg_id = session.add_exchange(content, response_text, role_name)
-
         # Index into knowledge if librarian is available
+        knowledge_entry_ids: List[str] = []
         if self.librarian and response_text:
             try:
-                self.librarian.index_response(
+                ingest_result = self.librarian.index_response(
                     content=response_text,
                     title=f"Response to: {content[:60]}",
                     agent_id=role_name,
                     query=content,
                 )
+                knowledge_entry_ids = ingest_result.entries
             except Exception as e:
                 logger.debug(f"Knowledge indexing failed: {e}")
+
+        # Record exchange
+        msg_id = session.add_exchange(
+            content, response_text, role_name,
+            knowledge_entry_ids=knowledge_entry_ids,
+        )
 
         # Callback
         if self.on_message:
@@ -236,6 +250,34 @@ class ChatServer:
             "session_id": session.session_id,
             "metadata": result.get("metadata", {}),
         }
+
+    def _handle_search(
+        self, msg: Dict[str, Any], session: ChatSession
+    ) -> Dict[str, Any]:
+        """Handle a search request against the knowledge store."""
+        query = msg.get("query", "").strip()
+        if not query:
+            return {"type": "error", "content": "Empty search query"}
+
+        if not self.librarian or not hasattr(self.librarian, "store"):
+            return {"type": "error", "content": "Search not available"}
+
+        scope = msg.get("scope")
+        limit = msg.get("limit", 10)
+
+        try:
+            results = self.librarian.store.search(
+                query, scope=scope, limit=limit
+            )
+            return {
+                "type": "search_results",
+                "query": query,
+                "results": [entry.to_dict() for entry in results],
+                "session_id": session.session_id,
+            }
+        except Exception as e:
+            logger.error(f"Search failed: {e}")
+            return {"type": "error", "content": "Search failed"}
 
     def _handle_feedback(
         self, msg: Dict[str, Any], session: ChatSession
@@ -262,6 +304,13 @@ class ChatServer:
                 f"Feedback on {msg_id}: rating={rating}, "
                 f"confidence={confidence:.0%}"
             )
+            entry_ids = exchange.get("knowledge_entry_ids", [])
+            if entry_ids and hasattr(self.librarian, "store"):
+                for eid in entry_ids:
+                    try:
+                        self.librarian.store.update_confidence(eid, confidence)
+                    except Exception as e:
+                        logger.debug(f"Failed to update confidence for {eid}: {e}")
 
         return {"type": "ack", "message_id": msg_id}
 

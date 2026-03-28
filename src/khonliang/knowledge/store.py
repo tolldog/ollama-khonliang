@@ -305,7 +305,10 @@ class KnowledgeStore:
         Returns:
             Entries sorted by relevance (BM25 score).
         """
-        words = [w for w in query.split() if w.isalnum() and len(w) > 1]
+        words = [
+            w for w in query.split()
+            if (w.isalnum() or w in ("_", "-")) and len(w) > 1
+        ]
         if not words:
             return []
         fts_query = " OR ".join(f'"{w}"' for w in words)

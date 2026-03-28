@@ -361,7 +361,8 @@ class Librarian:
         stats = self.store.get_stats()
         stats["config"] = {
             "auto_index": self.config.auto_index_responses,
-            "promote_threshold": self.config.promote_confidence_threshold,
+            "promote_confidence_threshold": self.config.promote_confidence_threshold,
+            "promote_access_threshold": self.config.promote_access_threshold,
             "max_derived_age_days": self.config.max_derived_age_days,
         }
         stats["assessors"] = list(self._assessors.keys())

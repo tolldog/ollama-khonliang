@@ -228,7 +228,7 @@ class IngestionPipeline:
                 tier=tier,
                 scope=scope,
                 confidence=confidence,
-                entry_id=f"imported:{filepath.stem}:{i}",
+                entry_id=f"{tier.name.lower()}:{filepath.stem}:{i}",
             )
             result.added += chunk_result.added
             result.updated += chunk_result.updated
@@ -262,7 +262,7 @@ class IngestionPipeline:
             result.errors += 1
             return result
 
-        file_patterns = patterns or ["*.txt", "*.md", "*.csv"]
+        file_patterns = patterns or ["*.txt", "*.md", "*.csv", "*.json", "*.ged"]
         files = []
         for pattern in file_patterns:
             files.extend(dirpath.glob(pattern))
