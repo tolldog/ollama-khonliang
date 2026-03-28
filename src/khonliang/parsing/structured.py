@@ -29,8 +29,8 @@ The LLM would emit:
     }
     ```
 
-For autostock-style trade suggestions, use fence_name="autostock-suggestion",
-items_key="trades", valid_actions=["buy", "sell"].
+For custom domains, configure fence_name, items_key, and valid_actions to match
+your schema. E.g. fence_name="review-action", valid_actions=["approve", "reject"].
 """
 
 import json
