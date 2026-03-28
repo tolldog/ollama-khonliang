@@ -307,7 +307,7 @@ class KnowledgeStore:
         """
         words = [
             w for w in query.split()
-            if (w.isalnum() or w in ("_", "-")) and len(w) > 1
+            if all(c.isalnum() or c in ("_", "-") for c in w) and len(w) > 1
         ]
         if not words:
             return []
