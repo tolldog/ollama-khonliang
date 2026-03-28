@@ -1,6 +1,6 @@
 # ollama-khonliang
 
-*A llama rancher* — multi-agent LLM orchestration framework for [Ollama](https://ollama.com).
+_A llama rancher_ — multi-agent LLM orchestration framework for [Ollama](https://ollama.com).
 
 **khonliang** (คนเลี้ยง) means "caretaker" or "keeper" in Thai — a rancher wrangling your herd of local LLMs.
 
@@ -125,7 +125,7 @@ khonliang test tests.jsonl --router myapp.router:MyRouter
 
 ## Architecture
 
-```
+```text
 khonliang/
 ├── client.py          # Async Ollama client with retry & streaming
 ├── pool.py            # Role → model mapping with connection reuse
@@ -147,17 +147,17 @@ khonliang/
 
 ## Module Overview
 
-| Layer | Module | Description |
-|-------|--------|-------------|
-| Connection | `client`, `pool`, `health`, `errors` | Async Ollama client, model pool, health tracking |
-| Roles | `roles.base`, `roles.router` | Abstract role base class, priority-ordered message router |
-| Personalities | `personalities` | Named personas with voting weights and @mention resolution |
-| Consensus | `consensus.models`, `engine`, `team` | Weighted voting, VETO blocking, parallel agent orchestration |
-| Routing | `routing.flow`, `routing.semantic` | LLM flow classification, embedding-based intent routing |
-| Parsing | `parsing.structured` | Extract typed JSON from fenced LLM code blocks |
-| RAG | `rag.retriever`, `rag.scoped` | FTS5 search, agent-scoped knowledge retrieval |
-| Training | `training.feedback`, `training.exporter` | Interaction logging, feedback, JSONL export |
-| Integrations | `integrations.mattermost` | Mattermost WebSocket bot |
+| Layer         | Module                                   | Description                                                  |
+| ------------- | ---------------------------------------- | ------------------------------------------------------------ |
+| Connection    | `client`, `pool`, `health`, `errors`     | Async Ollama client, model pool, health tracking             |
+| Roles         | `roles.base`, `roles.router`             | Abstract role base class, priority-ordered message router    |
+| Personalities | `personalities`                          | Named personas with voting weights and @mention resolution   |
+| Consensus     | `consensus.models`, `engine`, `team`     | Weighted voting, VETO blocking, parallel agent orchestration |
+| Routing       | `routing.flow`, `routing.semantic`       | LLM flow classification, embedding-based intent routing      |
+| Parsing       | `parsing.structured`                     | Extract typed JSON from fenced LLM code blocks               |
+| RAG           | `rag.retriever`, `rag.scoped`            | FTS5 search, agent-scoped knowledge retrieval                |
+| Training      | `training.feedback`, `training.exporter` | Interaction logging, feedback, JSONL export                  |
+| Integrations  | `integrations.mattermost`                | Mattermost WebSocket bot                                     |
 
 ## License
 

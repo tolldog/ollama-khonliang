@@ -1,5 +1,5 @@
 from khonliang.rag.retriever import DocumentRetriever, RetrievedDocument
-from khonliang.rag.scoped import ScopedRetriever, ScopedDocument, RAGScope, RAGConfig
+from khonliang.rag.scoped import RAGConfig, RAGScope, ScopedDocument, ScopedRetriever
 
 __all__ = [
     "DocumentRetriever", "RetrievedDocument",

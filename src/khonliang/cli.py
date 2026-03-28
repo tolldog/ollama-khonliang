@@ -20,7 +20,6 @@ import asyncio
 import json
 import sys
 from pathlib import Path
-from typing import Optional
 
 
 def _get_ollama_url() -> str:
@@ -63,7 +62,6 @@ def cmd_health(args):
 
 def cmd_chat(args):
     """Interactive chat with a specific role."""
-    from khonliang.client import OllamaClient
     from khonliang.pool import ModelPool
 
     model = args.model or "llama3.1:8b"
@@ -78,7 +76,6 @@ def cmd_chat(args):
     client = pool.get_client(role)
 
     async def run():
-        session_id = "cli-session"
         try:
             while True:
                 try:

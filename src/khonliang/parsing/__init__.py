@@ -1,3 +1,3 @@
-from khonliang.parsing.structured import StructuredBlockParser, ParsedBlock
+from khonliang.parsing.structured import ParsedBlock, StructuredBlockParser
 
 __all__ = ["StructuredBlockParser", "ParsedBlock"]

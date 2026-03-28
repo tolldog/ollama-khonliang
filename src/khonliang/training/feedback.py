@@ -46,7 +46,7 @@ Usage::
 import json
 import logging
 import sqlite3
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -347,13 +347,16 @@ class FeedbackStore:
         finally:
             conn.close()
 
-    def get_feedback(self, limit: int = 100, min_rating: Optional[int] = None) -> List[InteractionFeedback]:
+    def get_feedback(
+        self, limit: int = 100, min_rating: Optional[int] = None,
+    ) -> List[InteractionFeedback]:
         """Fetch feedback entries, optionally filtered by minimum rating."""
         conn = self._conn()
         try:
             if min_rating is not None:
                 rows = conn.execute(
-                    "SELECT * FROM training_feedback WHERE rating >= ? ORDER BY created_at DESC LIMIT ?",
+                    "SELECT * FROM training_feedback "
+                    "WHERE rating >= ? ORDER BY created_at DESC LIMIT ?",
                     (min_rating, limit),
                 ).fetchall()
             else:
@@ -441,7 +444,8 @@ class FeedbackStore:
 
             by_rating: Dict[int, int] = {}
             for r in conn.execute(
-                "SELECT rating, COUNT(*) FROM training_feedback WHERE rating IS NOT NULL GROUP BY rating"
+                "SELECT rating, COUNT(*) FROM training_feedback "
+                "WHERE rating IS NOT NULL GROUP BY rating"
             ).fetchall():
                 by_rating[r[0]] = r[1]
 

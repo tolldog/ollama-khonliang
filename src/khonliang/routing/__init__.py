@@ -1,4 +1,4 @@
-from khonliang.routing.flow import FlowClassifier, FlowClassification, FlowAction
+from khonliang.routing.flow import FlowAction, FlowClassification, FlowClassifier
 
 try:
     from khonliang.routing.semantic import SemanticIntentRouter

@@ -36,15 +36,18 @@ khonliang test examples/helpdesk_bot/tests.jsonl
 The library is layered:
 
 **Connection layer** (`client.py`, `pool.py`, `health.py`, `errors.py`):
+
 - `OllamaClient` — async HTTP client for Ollama `/api/generate` with per-model timeouts, exponential backoff retry (3 attempts, 1s->2s->4s), JSON generation with auto-cleanup, typed errors, and token-by-token streaming via `stream_generate()` (async generator).
 - `ModelPool` — maps role names to model strings and lazily creates/deduplicates `OllamaClient` instances.
 - `ModelHealthTracker` — tracks failures per model and enforces cooldown (default: 3 failures in 300s -> 60s cooldown).
 
 **Role layer** (`roles/`):
+
 - `BaseRole` — abstract base; subclasses implement `handle()` and optionally override `build_context()` to inject live data (DB, API calls) into the prompt before generation.
 - `BaseRouter` — hybrid router evaluated in priority order: callable predicates -> regex patterns -> keyword lists -> optional `SemanticIntentRouter` stage -> fallback role. Attach semantic stage via `set_semantic_router()` or the `semantic_router` constructor argument.
 
 **Personality system** (`personalities.py`):
+
 - `PersonalityConfig` — named agent personality with voting weight, focus areas, and an optional custom system prompt.
 - `PersonalityRegistry` — load/save/register personalities; resolve `@mention` aliases. Built-in defaults: `resolver`, `analyst`, `advocate`, `skeptic`. Load custom personalities from JSON via `PersonalityRegistry("config/personalities.json")`.
 - `get_registry()` — module-level singleton for the default registry.
@@ -52,6 +55,7 @@ The library is layered:
 - `extract_mention(text)` — parses `@name` from user messages and resolves to a personality ID.
 
 **Advanced modules** (optional imports):
+
 - `routing/flow.py` — `FlowClassifier` uses a fast LLM to classify conversation intents (SAVE/EXECUTE/UPDATE/EXPLAIN/OTHER).
 - `routing/semantic.py` — `SemanticIntentRouter` maps messages to routes via FastEmbed cosine similarity; no GPU needed, <5ms per call. Plugs into `BaseRouter` as stage 4.
 - `consensus/` — `AgentTeam` runs N agents in parallel (`asyncio.gather`), collects `AgentVote` objects, and `ConsensusEngine` aggregates via weighted scoring. VETO overrides all.
@@ -62,6 +66,7 @@ The library is layered:
 - `agents/registry.py` — `ConfigRegistry[T]` — generic typed JSON-backed config persistence; requires `T` to have `to_dict()` and `from_dict()`.
 
 **Planned modules:**
+
 - `gateway/` — Redis Streams agent message bus for distributed communication.
 - `debate/` — Structured agent debate/challenge orchestration.
 - `discovery/` — mDNS service advertising and discovery via zeroconf.

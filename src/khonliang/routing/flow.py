@@ -65,7 +65,8 @@ UPDATE  — modify before deciding (change something, more/less aggressive)
 EXPLAIN — wants more detail or reasoning
 OTHER   — unrelated or topic change
 
-Reply with ONLY JSON: {{"action": "save|execute|update|explain|other", "confidence": 0.0-1.0, "reasoning": "..."}}
+Reply with ONLY JSON:
+{{"action": "save|execute|update|explain|other", "confidence": 0.0-1.0, "reasoning": "..."}}
 
 User message: "{message}"
 """,
@@ -78,7 +79,8 @@ UPDATE  — change or refine the plan
 EXPLAIN — wants more detail about the plan
 OTHER   — unrelated or topic change
 
-Reply with ONLY JSON: {{"action": "save|update|explain|other", "confidence": 0.0-1.0, "reasoning": "..."}}
+Reply with ONLY JSON:
+{{"action": "save|update|explain|other", "confidence": 0.0-1.0, "reasoning": "..."}}
 
 User message: "{message}"
 """,
