@@ -129,6 +129,7 @@ class LLMManager:
         system: Optional[str] = None,
         priority: int = 0,
         queue: QueueType = QueueType.DEFAULT,
+        model_preferences: Optional[List[str]] = None,
         **kwargs: Any,
     ) -> str:
         """
@@ -143,6 +144,7 @@ class LLMManager:
             system=system,
             priority=priority,
             queue=queue,
+            model_preferences=model_preferences or [],
             **kwargs,
         )
 

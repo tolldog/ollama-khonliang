@@ -198,6 +198,16 @@ class ModelScheduler:
             # Swap factor: 0.1 for very expensive swaps, up to 1.0
             swap_factor = max(0.1, 1.0 - (swap_ms / 30000.0))
 
+        # Don't evict a pinned model — if this GPU has a pinned model
+        # and the candidate is different, heavily penalize
+        if (
+            gpu.current_model
+            and gpu.current_model in self.pinned_models
+            and gpu.current_model != model
+            and gpu.model_state == ModelState.LOADED
+        ):
+            swap_factor *= 0.01  # near-zero: strongly avoid evicting pinned
+
         # VRAM check — can this GPU fit the model?
         model_vram = self.model_vram.get(model, 0)
         if model_vram > 0 and not gpu.can_fit(model_vram):
@@ -359,7 +369,7 @@ class ModelScheduler:
                 model: len(queue) for model, queue in self._queues.items()
             },
             "completed": self._completed,
-            "pinned_models": list(self.pinned_models),
+            "pinned_models": sorted(self.pinned_models),
             "model_stats": {
                 model: {
                     "avg_inference_ms": s.avg_inference_ms,

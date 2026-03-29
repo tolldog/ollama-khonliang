@@ -9,6 +9,7 @@ from khonliang.llm.profiles import ModelProfile, ModelProfiles
 from khonliang.llm.protocol import (
     GPUSlot,
     InferenceRequest,
+    InferenceResult,
     ModelState,
     QueueType,
 )
@@ -391,6 +392,42 @@ def test_model_preferences_no_prefs():
     req = InferenceRequest(model="llama3.1:8b", prompt="test")
     target = scheduler._resolve_model(req)
     assert target == "llama3.1:8b"
+
+
+def test_generate_propagates_model_preferences():
+    """generate() should pass model_preferences through to InferenceRequest."""
+    from unittest.mock import AsyncMock, patch
+
+    from khonliang.llm.internal import InternalBackend
+
+    backend = InternalBackend(ollama_url="http://localhost:11434")
+
+    # Capture the request submitted to the scheduler
+    captured_requests = []
+    original_enqueue = backend._scheduler.enqueue
+
+    async def _capture_enqueue(request):
+        captured_requests.append(request)
+        await original_enqueue(request)
+
+    backend._scheduler.enqueue = _capture_enqueue
+
+    # Mock submit to avoid needing a running loop, and get_result to return immediately
+    async def _run():
+        backend._running = True
+        with patch.object(backend, "get_result", new_callable=AsyncMock) as mock_result:
+            mock_result.return_value = InferenceResult(
+                request_id="test", text="hello", model="llama3.1:8b"
+            )
+            await backend.generate(
+                model="llama3.1:8b",
+                prompt="test",
+                model_preferences=["qwen2.5:7b", "mistral:latest"],
+            )
+
+    asyncio.run(_run())
+    assert len(captured_requests) == 1
+    assert captured_requests[0].model_preferences == ["qwen2.5:7b", "mistral:latest"]
 
 
 def test_pinned_models_in_status():
