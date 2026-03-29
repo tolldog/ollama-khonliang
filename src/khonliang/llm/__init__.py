@@ -1,4 +1,5 @@
 from khonliang.llm.manager import LLMManager
+from khonliang.llm.profiles import ModelProfile, ModelProfiles
 from khonliang.llm.protocol import (
     GPUSlot,
     InferenceRequest,
@@ -22,4 +23,6 @@ __all__ = [
     "ModelStats",
     "SchedulerStatus",
     "LLMBackend",
+    "ModelProfile",
+    "ModelProfiles",
 ]

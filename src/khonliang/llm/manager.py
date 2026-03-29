@@ -24,6 +24,7 @@ Example:
 import logging
 from typing import Any, Dict, List, Optional
 
+from khonliang.llm.profiles import ModelProfiles
 from khonliang.llm.protocol import (
     GPUSlot,
     InferenceRequest,
@@ -58,9 +59,21 @@ class LLMManager:
         gpus: Optional[List[GPUSlot]] = None,
         model_vram: Optional[Dict[str, int]] = None,
         max_batch_size: int = 10,
+        profiles_path: Optional[str] = None,
         **kwargs: Any,
     ):
         self._backend_type = backend
+        self._profiles: Optional[ModelProfiles] = None
+
+        # Load profiles if path provided
+        if profiles_path:
+            self._profiles = ModelProfiles(profiles_path)
+            self._profiles.load()
+            # Merge profile VRAM data with explicit model_vram
+            profile_vram = self._profiles.get_vram_map()
+            if model_vram:
+                profile_vram.update(model_vram)
+            model_vram = profile_vram
 
         if backend == "internal":
             from khonliang.llm.internal import InternalBackend
@@ -82,10 +95,28 @@ class LLMManager:
     async def start(self) -> None:
         """Start the manager and its backend."""
         await self._backend.start()
+
+        # Seed scheduler with profile data if available
+        if self._profiles and hasattr(self._backend, "_scheduler"):
+            seeded = self._profiles.seed_scheduler_stats(
+                self._backend._scheduler
+            )
+            if seeded:
+                logger.info(f"Seeded scheduler with {seeded} model profiles")
+
         logger.info(f"LLM Manager started (backend={self._backend_type})")
 
     async def stop(self) -> None:
-        """Stop the manager."""
+        """Stop the manager. Saves updated profiles if configured."""
+        # Save runtime stats back to profiles before stopping
+        if self._profiles and hasattr(self._backend, "_scheduler"):
+            status = self._backend._scheduler.get_status()
+            model_stats = status.get("model_stats", {})
+            updated = self._profiles.update_from_stats(model_stats)
+            if updated:
+                self._profiles.save()
+                logger.info(f"Saved {updated} updated model profiles")
+
         await self._backend.stop()
 
     async def generate(

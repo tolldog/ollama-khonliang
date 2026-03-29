@@ -1,8 +1,11 @@
-"""Tests for the LLM manager and scheduler."""
+"""Tests for the LLM manager, scheduler, and profiles."""
 
 import asyncio
+import os
+import tempfile
 import time
 
+from khonliang.llm.profiles import ModelProfile, ModelProfiles
 from khonliang.llm.protocol import (
     GPUSlot,
     InferenceRequest,
@@ -204,3 +207,101 @@ def test_scheduler_status():
     assert status["queue_depths"]["m"] == 1
     assert status["completed"] == 1
     assert "m" in status["model_stats"]
+
+
+# ------------------------------------------------------------------
+# Profile tests
+# ------------------------------------------------------------------
+
+
+def test_profile_save_load():
+    fd, path = tempfile.mkstemp(suffix=".yaml")
+    os.close(fd)
+
+    profiles = ModelProfiles(path)
+    profiles.set(ModelProfile(
+        model="llama3.2:3b",
+        vram_mb=2048,
+        avg_load_ms=1500,
+        avg_inference_ms=500,
+    ))
+    profiles.set(ModelProfile(
+        model="qwen2.5:7b",
+        vram_mb=4700,
+        avg_load_ms=3000,
+        avg_inference_ms=1100,
+    ))
+    profiles.save()
+
+    loaded = ModelProfiles(path)
+    loaded.load()
+    assert len(loaded.list_models()) == 2
+
+    p = loaded.get("llama3.2:3b")
+    assert p is not None
+    assert p.vram_mb == 2048
+    assert p.avg_load_ms == 1500
+
+    os.unlink(path)
+
+
+def test_profile_vram_map():
+    profiles = ModelProfiles("/dev/null")
+    profiles.set(ModelProfile(model="small", vram_mb=2000))
+    profiles.set(ModelProfile(model="large", vram_mb=19000))
+    profiles.set(ModelProfile(model="unknown", vram_mb=0))
+
+    vmap = profiles.get_vram_map()
+    assert vmap["small"] == 2000
+    assert vmap["large"] == 19000
+    assert "unknown" not in vmap  # 0 excluded
+
+
+def test_profile_runtime_preferred():
+    p = ModelProfile(
+        model="test",
+        avg_inference_ms=500,
+        runtime_avg_inference_ms=300,
+    )
+    assert p.effective_inference_ms() == 300  # runtime preferred
+
+
+def test_profile_update_from_stats():
+    profiles = ModelProfiles("/dev/null")
+    profiles.set(ModelProfile(model="m", avg_inference_ms=500))
+
+    profiles.update_from_stats({
+        "m": {"avg_inference_ms": 400, "avg_load_ms": 2000, "total_requests": 10},
+    })
+
+    p = profiles.get("m")
+    assert p.runtime_avg_inference_ms == 400
+    assert p.runtime_avg_load_ms == 2000
+
+
+def test_profile_seed_scheduler():
+    profiles = ModelProfiles("/dev/null")
+    profiles.set(ModelProfile(
+        model="m", avg_inference_ms=500, avg_load_ms=2000
+    ))
+
+    scheduler = ModelScheduler()
+    profiles.seed_scheduler_stats(scheduler)
+
+    stats = scheduler.get_stats("m")
+    assert stats.avg_inference_ms == 500
+    assert stats.avg_load_ms == 2000
+
+
+def test_gpu_vram_budget():
+    gpu = GPUSlot(gpu_id=0, vram_mb=8192, vram_reserve_mb=512, max_vram_pct=0.9)
+    # 8192 * 0.9 = 7372, minus 512 reserve = 6860
+    assert gpu.available_vram_mb == 6860
+    assert gpu.can_fit(6000)
+    assert not gpu.can_fit(7000)
+
+
+def test_gpu_vram_unknown():
+    gpu = GPUSlot(gpu_id=0, vram_mb=0)
+    assert gpu.available_vram_mb == 0
+    assert gpu.can_fit(99999)  # unknown = assume fits

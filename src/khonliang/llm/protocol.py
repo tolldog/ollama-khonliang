@@ -91,16 +91,26 @@ class GPUSlot:
     """Represents a GPU and its current state."""
 
     gpu_id: int = 0
-    vram_mb: int = 0  # 0 = unknown/unlimited
+    vram_mb: int = 0  # 0 = unknown/unlimited, total physical VRAM
+    vram_reserve_mb: int = 512  # VRAM to reserve for system/display
+    max_vram_pct: float = 0.9  # max % of VRAM to use (0.0-1.0)
     current_model: Optional[str] = None
     model_state: ModelState = ModelState.UNLOADED
     loaded_at: float = 0.0
 
+    @property
+    def available_vram_mb(self) -> int:
+        """VRAM available for models after reserves."""
+        if self.vram_mb == 0:
+            return 0  # unknown
+        budget = int(self.vram_mb * self.max_vram_pct)
+        return max(0, budget - self.vram_reserve_mb)
+
     def can_fit(self, model_vram_mb: int) -> bool:
-        """Check if this GPU can fit a model."""
+        """Check if this GPU can fit a model within budget."""
         if self.vram_mb == 0:
             return True  # unknown = assume it fits
-        return model_vram_mb <= self.vram_mb
+        return model_vram_mb <= self.available_vram_mb
 
 
 @dataclass
