@@ -15,7 +15,7 @@ import asyncio
 import logging
 import time
 from collections import defaultdict
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from khonliang.llm.protocol import (
     GPUSlot,
@@ -195,17 +195,24 @@ class ModelScheduler:
     # ------------------------------------------------------------------
 
     async def next_batch(
-        self, gpu: Optional[GPUSlot] = None
+        self,
+        gpu: Optional[GPUSlot] = None,
+        exclude: Optional[Set[str]] = None,
     ) -> Optional[Tuple[str, GPUSlot, List[InferenceRequest]]]:
         """
         Get the next batch to run.
+
+        Args:
+            gpu: Target GPU slot. Defaults to first GPU.
+            exclude: Optional set of model names to skip (already assigned to
+                another GPU in the same scheduling round).
 
         Returns (model, gpu_slot, batch_of_requests) or None if empty.
         """
         target_gpu = gpu or self.gpus[0]
 
         async with self._queue_lock:
-            model = self.best_model_for_gpu(target_gpu)
+            model = self.best_model_for_gpu(target_gpu, exclude=exclude)
 
             if model is None:
                 return None
@@ -228,30 +235,20 @@ class ModelScheduler:
     async def next_batch_for_all_gpus(
         self,
     ) -> List[Tuple[str, GPUSlot, List[InferenceRequest]]]:
-        """Get next batch for each GPU that has work."""
+        """Get next batch for each GPU that has work.
+
+        Ensures each model is assigned to at most one GPU per round.
+        Loaded models naturally score higher via the swap_factor, so
+        no explicit "prefer current model" logic is needed here.
+        """
         batches = []
         assigned_models: set = set()
 
         for gpu in self.gpus:
-            # Prefer keeping current model if it has work
-            if (
-                gpu.current_model
-                and gpu.current_model not in assigned_models
-                and self._queues.get(gpu.current_model)
-            ):
-                batch = await self.next_batch(gpu)
-                if batch:
-                    batches.append(batch)
-                    assigned_models.add(batch[0])
-                    continue
-
-            # Find best unassigned model for this GPU
-            model = self.best_model_for_gpu(gpu, exclude=assigned_models)
-            if model:
-                batch = await self.next_batch(gpu)
-                if batch:
-                    batches.append(batch)
-                    assigned_models.add(batch[0])
+            batch = await self.next_batch(gpu, exclude=assigned_models)
+            if batch:
+                batches.append(batch)
+                assigned_models.add(batch[0])
 
         return batches
 

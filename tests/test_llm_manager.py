@@ -141,6 +141,35 @@ def test_multi_gpu_scheduling():
     assert "large" in models_assigned
 
 
+def test_multi_gpu_no_duplicate_model_assignment():
+    """Each model should be assigned to at most one GPU per scheduling round."""
+    scheduler = ModelScheduler(
+        gpus=[
+            GPUSlot(gpu_id=0, vram_mb=24576),
+            GPUSlot(gpu_id=1, vram_mb=24576),
+        ],
+    )
+
+    # Enqueue several requests for model_a (should score highest on both GPUs)
+    # and one for model_b, using a single event loop run for all enqueues.
+    async def _setup():
+        for _ in range(4):
+            await scheduler.enqueue(
+                InferenceRequest(model="model_a", prompt="a", submitted_at=time.time() - 60)
+            )
+        await scheduler.enqueue(
+            InferenceRequest(model="model_b", prompt="b")
+        )
+
+    asyncio.run(_setup())
+
+    batches = asyncio.run(scheduler.next_batch_for_all_gpus())
+    # Both GPUs get work; model_a is only assigned to one GPU
+    assigned_models = [b[0] for b in batches]
+    assert assigned_models.count("model_a") <= 1
+    assert len(batches) == 2  # both GPUs busy: one on model_a, one on model_b
+
+
 def test_vram_constraint():
     scheduler = ModelScheduler(
         gpus=[GPUSlot(gpu_id=0, vram_mb=8192)],

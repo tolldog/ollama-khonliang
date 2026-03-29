@@ -142,6 +142,7 @@ class InternalBackend:
             temperature=kwargs.get("temperature", 0.7),
             max_tokens=kwargs.get("max_tokens", 4000),
             timeout=kwargs.get("timeout", 120.0),
+            extra_options=kwargs.get("extra_options"),
         )
         await self.submit(request)
         result = await self.get_result(request.request_id, timeout=request.timeout)
