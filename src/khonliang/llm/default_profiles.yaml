@@ -1,0 +1,56 @@
+# Default model profiles for common Ollama models.
+# These are rough estimates — run the benchmark to get accurate values
+# for your hardware. Runtime stats will refine these automatically.
+#
+# Generate accurate profiles: python -m khonliang.llm.benchmark
+# Profiles are updated from actual usage on scheduler shutdown.
+
+models:
+  llama3.2:3b:
+    vram_mb: 2048
+    avg_load_ms: 1500
+    avg_inference_ms: 500
+    avg_evict_ms: 200
+    max_tokens: 4096
+
+  llama3.1:8b:
+    vram_mb: 4900
+    avg_load_ms: 3000
+    avg_inference_ms: 1200
+    avg_evict_ms: 400
+    max_tokens: 4096
+
+  qwen2.5:7b:
+    vram_mb: 4700
+    avg_load_ms: 3000
+    avg_inference_ms: 1100
+    avg_evict_ms: 400
+    max_tokens: 4096
+
+  mistral:latest:
+    vram_mb: 4400
+    avg_load_ms: 2800
+    avg_inference_ms: 1000
+    avg_evict_ms: 350
+    max_tokens: 4096
+
+  deepseek-r1:14b:
+    vram_mb: 9000
+    avg_load_ms: 5000
+    avg_inference_ms: 3000
+    avg_evict_ms: 600
+    max_tokens: 4096
+
+  deepseek-r1:32b:
+    vram_mb: 19000
+    avg_load_ms: 12000
+    avg_inference_ms: 8000
+    avg_evict_ms: 800
+    max_tokens: 4096
+
+  qwen2.5:32b:
+    vram_mb: 19000
+    avg_load_ms: 12000
+    avg_inference_ms: 7500
+    avg_evict_ms: 800
+    max_tokens: 4096
