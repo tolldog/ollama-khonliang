@@ -38,10 +38,6 @@ import aiohttp
 
 from khonliang.llm.profiles import ModelProfiles
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s",
-)
 logger = logging.getLogger(__name__)
 
 # Standard benchmark prompts — short, medium, long
@@ -110,16 +106,29 @@ class ModelBenchmark:
         self.ollama_url = ollama_url.rstrip("/")
         self.iterations = iterations
         self.max_tokens = max_tokens
+        self._session: Optional[aiohttp.ClientSession] = None
+
+    async def _ensure_session(self) -> aiohttp.ClientSession:
+        """Get or create a shared HTTP session."""
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession()
+        return self._session
+
+    async def close(self) -> None:
+        """Close the shared HTTP session."""
+        if self._session and not self._session.closed:
+            await self._session.close()
 
     async def list_models(self) -> List[str]:
         """Get available models from Ollama."""
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    f"{self.ollama_url}/api/tags", timeout=aiohttp.ClientTimeout(total=5)
-                ) as resp:
-                    data = await resp.json()
-                    return [m["name"] for m in data.get("models", [])]
+            session = await self._ensure_session()
+            async with session.get(
+                f"{self.ollama_url}/api/tags",
+                timeout=aiohttp.ClientTimeout(total=5),
+            ) as resp:
+                data = await resp.json()
+                return [m["name"] for m in data.get("models", [])]
         except Exception as e:
             logger.error(f"Cannot reach Ollama at {self.ollama_url}: {e}")
             return []
@@ -127,14 +136,14 @@ class ModelBenchmark:
     async def get_model_info(self, model: str) -> Dict[str, Any]:
         """Get model details including size."""
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{self.ollama_url}/api/show",
-                    json={"name": model},
-                    timeout=aiohttp.ClientTimeout(total=10),
-                ) as resp:
-                    if resp.status == 200:
-                        return await resp.json()
+            session = await self._ensure_session()
+            async with session.post(
+                f"{self.ollama_url}/api/show",
+                json={"name": model},
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                if resp.status == 200:
+                    return await resp.json()
         except Exception as e:
             logger.debug(f"Could not get model info for {model}: {e}")
         return {}
@@ -142,14 +151,15 @@ class ModelBenchmark:
     async def unload_model(self, model: str) -> bool:
         """Unload a model from Ollama to measure cold load."""
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{self.ollama_url}/api/generate",
-                    json={"model": model, "keep_alive": 0},
-                    timeout=aiohttp.ClientTimeout(total=10),
-                ) as resp:
-                    return resp.status == 200
-        except Exception:
+            session = await self._ensure_session()
+            async with session.post(
+                f"{self.ollama_url}/api/generate",
+                json={"model": model, "keep_alive": 0},
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                return resp.status == 200
+        except Exception as e:
+            logger.debug(f"Could not unload {model}: {e}")
             return False
 
     async def generate(
@@ -158,31 +168,40 @@ class ModelBenchmark:
         """Run a single generation and return timing data."""
         start = time.time()
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{self.ollama_url}/api/generate",
-                    json={
-                        "model": model,
-                        "prompt": prompt,
-                        "stream": False,
-                        "options": {
-                            "num_predict": max_tokens,
-                            "temperature": 0.1,
-                        },
+            session = await self._ensure_session()
+            async with session.post(
+                f"{self.ollama_url}/api/generate",
+                json={
+                    "model": model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {
+                        "num_predict": max_tokens,
+                        "temperature": 0.1,
                     },
-                    timeout=aiohttp.ClientTimeout(total=300),
-                ) as resp:
-                    data = await resp.json()
-                    elapsed_ms = (time.time() - start) * 1000
+                },
+                timeout=aiohttp.ClientTimeout(total=300),
+            ) as resp:
+                elapsed_ms = (time.time() - start) * 1000
 
+                if resp.status != 200:
+                    error_text = await resp.text()
                     return {
                         "elapsed_ms": elapsed_ms,
-                        "eval_count": data.get("eval_count", 0),
-                        "eval_duration_ns": data.get("eval_duration", 0),
-                        "total_duration_ns": data.get("total_duration", 0),
-                        "prompt_eval_count": data.get("prompt_eval_count", 0),
-                        "success": True,
+                        "success": False,
+                        "error": f"HTTP {resp.status}: {error_text[:100]}",
                     }
+
+                data = await resp.json()
+
+                return {
+                    "elapsed_ms": elapsed_ms,
+                    "eval_count": data.get("eval_count", 0),
+                    "eval_duration_ns": data.get("eval_duration", 0),
+                    "total_duration_ns": data.get("total_duration", 0),
+                    "prompt_eval_count": data.get("prompt_eval_count", 0),
+                    "success": True,
+                }
         except Exception as e:
             return {
                 "elapsed_ms": (time.time() - start) * 1000,
@@ -205,7 +224,12 @@ class ModelBenchmark:
 
         # Step 1: Unload for cold start measurement
         logger.info(f"  Unloading {model}...")
-        await self.unload_model(model)
+        unloaded = await self.unload_model(model)
+        if not unloaded:
+            logger.warning(
+                f"  Could not confirm unload of {model} — "
+                "cold load time may be inaccurate"
+            )
         await asyncio.sleep(1)
 
         # Step 2: Cold load (first request)
@@ -221,7 +245,11 @@ class ModelBenchmark:
         logger.info(f"  Cold load: {result.cold_load_ms:.0f}ms")
 
         # Step 3: Warm inference runs
-        logger.info(f"  Running {self.iterations} warm inference tests...")
+        total_runs = self.iterations * len(BENCHMARK_PROMPTS)
+        logger.info(
+            f"  Running {total_runs} warm inference tests "
+            f"({len(BENCHMARK_PROMPTS)} prompts x {self.iterations} iterations)..."
+        )
         total_tokens = 0
         total_eval_ns = 0
 
@@ -382,18 +410,25 @@ async def run_benchmark(args):
 
     models = args.models if args.models else None
 
-    if args.validate:
-        results = await bench.validate_all(models)
-        print(f"\n{'Model':<25} {'Status':<10} {'Response':>10}")
-        print("-" * 50)
-        for r in results:
-            status = "OK" if r["valid"] else "FAILED"
-            ms = f"{r['response_ms']:.0f}ms" if r["valid"] else r.get("error", "")[:20]
-            print(f"{r['model']:<25} {status:<10} {ms:>10}")
-        return
+    try:
+        if args.validate:
+            results = await bench.validate_all(models)
+            print(f"\n{'Model':<25} {'Status':<10} {'Response':>10}")
+            print("-" * 50)
+            for r in results:
+                status = "OK" if r["valid"] else "FAILED"
+                ms = (
+                    f"{r['response_ms']:.0f}ms"
+                    if r["valid"]
+                    else r.get("error", "")[:20]
+                )
+                print(f"{r['model']:<25} {status:<10} {ms:>10}")
+            return
 
-    results = await bench.run_all(models)
-    bench.print_results(results)
+        results = await bench.run_all(models)
+        bench.print_results(results)
+    finally:
+        await bench.close()
     bench.save_profiles(results, args.output)
 
 
@@ -423,6 +458,10 @@ def main():
         help="Validate only: check models load and respond",
     )
     args = parser.parse_args()
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+    )
     asyncio.run(run_benchmark(args))
 
 
