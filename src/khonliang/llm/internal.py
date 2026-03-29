@@ -45,6 +45,7 @@ class InternalBackend:
         gpus: Optional[list] = None,
         max_batch_size: int = 10,
         model_vram: Optional[Dict[str, int]] = None,
+        pinned_models: Optional[list] = None,
     ):
         self._ollama_url = ollama_url
         self._client = OllamaClient(base_url=ollama_url)
@@ -52,6 +53,7 @@ class InternalBackend:
             gpus=gpus,
             max_batch_size=max_batch_size,
             model_vram=model_vram or {},
+            pinned_models=pinned_models,
         )
 
         # Result futures: request_id -> Future
@@ -204,6 +206,15 @@ class InternalBackend:
         """Process a batch of requests for a model on a GPU."""
         # Check if model needs loading
         if gpu.current_model != model:
+            # Don't evict a pinned model from this GPU
+            if (
+                gpu.current_model
+                and gpu.current_model in self._scheduler.pinned_models
+            ):
+                logger.debug(
+                    f"GPU {gpu.gpu_id} has pinned model "
+                    f"'{gpu.current_model}', loading '{model}' alongside"
+                )
             await self._load_model(model, gpu)
 
         # Process each request in the batch

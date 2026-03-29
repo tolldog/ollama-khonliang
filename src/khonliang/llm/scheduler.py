@@ -61,16 +61,19 @@ class ModelScheduler:
         gpus: Optional[List[GPUSlot]] = None,
         max_batch_size: int = 10,
         model_vram: Optional[Dict[str, int]] = None,
+        pinned_models: Optional[List[str]] = None,
     ):
         """
         Args:
             gpus: GPU slots available. Default: single unknown GPU.
             max_batch_size: Max requests per batch.
             model_vram: Optional map of model -> estimated VRAM in MB.
+            pinned_models: Models that should never be evicted when loaded.
         """
         self.gpus = gpus or [GPUSlot(gpu_id=0)]
         self.max_batch_size = max_batch_size
         self.model_vram = model_vram or {}
+        self.pinned_models: set = set(pinned_models or [])
 
         # Per-model request queues
         self._queues: Dict[str, List[InferenceRequest]] = defaultdict(list)
@@ -87,13 +90,56 @@ class ModelScheduler:
     # ------------------------------------------------------------------
 
     async def enqueue(self, request: InferenceRequest) -> None:
-        """Add a request to the appropriate model queue."""
+        """
+        Add a request to the appropriate model queue.
+
+        If the request has model_preferences, checks if any preferred
+        model is already loaded. If so, routes to that model instead
+        of the primary — avoiding unnecessary model swaps.
+        """
+        target_model = self._resolve_model(request)
+
         async with self._queue_lock:
-            self._queues[request.model].append(request)
-            # Sort by priority descending, then by submit time ascending
-            self._queues[request.model].sort(
+            self._queues[target_model].append(request)
+            self._queues[target_model].sort(
                 key=lambda r: (-r.priority, r.submitted_at)
             )
+
+    def _resolve_model(self, request: InferenceRequest) -> str:
+        """
+        Resolve which model to use for a request.
+
+        Checks model_preferences against loaded models. Returns the
+        first loaded preference, or the primary model if none are loaded.
+        """
+        # Build preference list: primary model first, then alternatives
+        preferences = [request.model]
+        for m in request.model_preferences:
+            if m not in preferences:
+                preferences.append(m)
+
+        if len(preferences) <= 1:
+            return request.model
+
+        # Check what's currently loaded across all GPUs
+        loaded = {
+            gpu.current_model
+            for gpu in self.gpus
+            if gpu.current_model and gpu.model_state == ModelState.LOADED
+        }
+
+        # Return first preference that's already loaded
+        for model in preferences:
+            if model in loaded:
+                if model != request.model:
+                    logger.debug(
+                        f"Request routed to loaded model '{model}' "
+                        f"instead of '{request.model}'"
+                    )
+                return model
+
+        # Nothing loaded — use primary
+        return request.model
 
     async def cancel(self, request_id: str) -> bool:
         """Cancel a pending request. Returns True if found."""
@@ -313,6 +359,7 @@ class ModelScheduler:
                 model: len(queue) for model, queue in self._queues.items()
             },
             "completed": self._completed,
+            "pinned_models": list(self.pinned_models),
             "model_stats": {
                 model: {
                     "avg_inference_ms": s.avg_inference_ms,

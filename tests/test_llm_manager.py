@@ -334,3 +334,75 @@ def test_gpu_vram_unknown():
     gpu = GPUSlot(gpu_id=0, vram_mb=0)
     assert gpu.available_vram_mb == 0
     assert gpu.can_fit(99999)  # unknown = assume fits
+
+
+# ------------------------------------------------------------------
+# Model preferences and pinning tests
+# ------------------------------------------------------------------
+
+
+def test_model_preferences_uses_loaded():
+    """If a preferred model is loaded, route there instead of primary."""
+    scheduler = ModelScheduler()
+    scheduler.update_gpu_state(0, "qwen2.5:7b", ModelState.LOADED)
+
+    req = InferenceRequest(
+        model="llama3.1:8b",
+        prompt="test",
+        model_preferences=["qwen2.5:7b", "mistral:latest"],
+    )
+    target = scheduler._resolve_model(req)
+    assert target == "qwen2.5:7b"  # loaded, so use it
+
+
+def test_model_preferences_falls_back_to_primary():
+    """If no preferred model is loaded, use primary."""
+    scheduler = ModelScheduler()
+    # Nothing loaded
+
+    req = InferenceRequest(
+        model="llama3.1:8b",
+        prompt="test",
+        model_preferences=["qwen2.5:7b"],
+    )
+    target = scheduler._resolve_model(req)
+    assert target == "llama3.1:8b"
+
+
+def test_model_preferences_primary_is_loaded():
+    """If primary model is loaded, use it even with preferences."""
+    scheduler = ModelScheduler()
+    scheduler.update_gpu_state(0, "llama3.1:8b", ModelState.LOADED)
+
+    req = InferenceRequest(
+        model="llama3.1:8b",
+        prompt="test",
+        model_preferences=["qwen2.5:7b"],
+    )
+    target = scheduler._resolve_model(req)
+    assert target == "llama3.1:8b"
+
+
+def test_model_preferences_no_prefs():
+    """Without preferences, always use primary."""
+    scheduler = ModelScheduler()
+    scheduler.update_gpu_state(0, "qwen2.5:7b", ModelState.LOADED)
+
+    req = InferenceRequest(model="llama3.1:8b", prompt="test")
+    target = scheduler._resolve_model(req)
+    assert target == "llama3.1:8b"
+
+
+def test_pinned_models_in_status():
+    scheduler = ModelScheduler(pinned_models=["llama3.2:3b"])
+    status = scheduler.get_status()
+    assert "llama3.2:3b" in status["pinned_models"]
+
+
+def test_pinned_profile():
+    profiles = ModelProfiles("/dev/null")
+    profiles.set(ModelProfile(model="llama3.2:3b", pin=True, vram_mb=1920))
+    profiles.set(ModelProfile(model="qwen2.5:7b", pin=False, vram_mb=4700))
+
+    pinned = profiles.get_pinned_models()
+    assert pinned == ["llama3.2:3b"]

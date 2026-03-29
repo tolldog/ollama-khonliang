@@ -45,6 +45,7 @@ class ModelProfile:
     avg_inference_ms: float = 0.0
     avg_evict_ms: float = 0.0
     max_tokens: int = 4096
+    pin: bool = False  # never evict this model when loaded
     # Benchmark metadata
     benchmark_runs: int = 0
     last_benchmarked: Optional[str] = None
@@ -153,6 +154,12 @@ class ModelProfiles:
     def list_models(self) -> list:
         """List all profiled model names."""
         return list(self._profiles.keys())
+
+    def get_pinned_models(self) -> list:
+        """Get list of models marked as pinned (never evict)."""
+        return [
+            name for name, p in self._profiles.items() if p.pin
+        ]
 
     # ------------------------------------------------------------------
     # Scheduler integration
