@@ -16,3 +16,4 @@ coverage.xml
 .env
 .venv/
 venv/
+model_profiles.yaml
