@@ -32,7 +32,16 @@ class ModelState(str, Enum):
 
 @dataclass
 class InferenceRequest:
-    """A request for LLM inference."""
+    """
+    A request for LLM inference.
+
+    Model selection:
+        model: Primary model to use.
+        model_preferences: Optional list of acceptable models, in preference
+            order. If any of these is already loaded, the scheduler will use
+            it instead of loading the primary model — avoiding swap latency.
+            The primary `model` is always implicitly first in the list.
+    """
 
     model: str
     prompt: str
@@ -43,6 +52,7 @@ class InferenceRequest:
     queue: QueueType = QueueType.DEFAULT
     timeout: float = 120.0
     extra_options: Optional[Dict[str, Any]] = None
+    model_preferences: List[str] = field(default_factory=list)
     request_id: str = field(default_factory=lambda: str(uuid.uuid4())[:12])
     submitted_at: float = field(default_factory=time.time)
 

@@ -9,6 +9,7 @@ from khonliang.llm.profiles import ModelProfile, ModelProfiles
 from khonliang.llm.protocol import (
     GPUSlot,
     InferenceRequest,
+    InferenceResult,
     ModelState,
     QueueType,
 )
@@ -334,3 +335,111 @@ def test_gpu_vram_unknown():
     gpu = GPUSlot(gpu_id=0, vram_mb=0)
     assert gpu.available_vram_mb == 0
     assert gpu.can_fit(99999)  # unknown = assume fits
+
+
+# ------------------------------------------------------------------
+# Model preferences and pinning tests
+# ------------------------------------------------------------------
+
+
+def test_model_preferences_uses_loaded():
+    """If a preferred model is loaded, route there instead of primary."""
+    scheduler = ModelScheduler()
+    scheduler.update_gpu_state(0, "qwen2.5:7b", ModelState.LOADED)
+
+    req = InferenceRequest(
+        model="llama3.1:8b",
+        prompt="test",
+        model_preferences=["qwen2.5:7b", "mistral:latest"],
+    )
+    target = scheduler._resolve_model(req)
+    assert target == "qwen2.5:7b"  # loaded, so use it
+
+
+def test_model_preferences_falls_back_to_primary():
+    """If no preferred model is loaded, use primary."""
+    scheduler = ModelScheduler()
+    # Nothing loaded
+
+    req = InferenceRequest(
+        model="llama3.1:8b",
+        prompt="test",
+        model_preferences=["qwen2.5:7b"],
+    )
+    target = scheduler._resolve_model(req)
+    assert target == "llama3.1:8b"
+
+
+def test_model_preferences_primary_is_loaded():
+    """If primary model is loaded, use it even with preferences."""
+    scheduler = ModelScheduler()
+    scheduler.update_gpu_state(0, "llama3.1:8b", ModelState.LOADED)
+
+    req = InferenceRequest(
+        model="llama3.1:8b",
+        prompt="test",
+        model_preferences=["qwen2.5:7b"],
+    )
+    target = scheduler._resolve_model(req)
+    assert target == "llama3.1:8b"
+
+
+def test_model_preferences_no_prefs():
+    """Without preferences, always use primary."""
+    scheduler = ModelScheduler()
+    scheduler.update_gpu_state(0, "qwen2.5:7b", ModelState.LOADED)
+
+    req = InferenceRequest(model="llama3.1:8b", prompt="test")
+    target = scheduler._resolve_model(req)
+    assert target == "llama3.1:8b"
+
+
+def test_generate_propagates_model_preferences():
+    """generate() should pass model_preferences through to InferenceRequest."""
+    from unittest.mock import AsyncMock, patch
+
+    from khonliang.llm.internal import InternalBackend
+
+    backend = InternalBackend(ollama_url="http://localhost:11434")
+
+    # Capture the request submitted to the scheduler
+    captured_requests = []
+    original_enqueue = backend._scheduler.enqueue
+
+    async def _capture_enqueue(request):
+        captured_requests.append(request)
+        await original_enqueue(request)
+
+    backend._scheduler.enqueue = _capture_enqueue
+
+    # Mock submit to avoid needing a running loop, and get_result to return immediately
+    async def _run():
+        backend._running = True
+        with patch.object(backend, "get_result", new_callable=AsyncMock) as mock_result:
+            mock_result.return_value = InferenceResult(
+                request_id="test", text="hello", model="llama3.1:8b"
+            )
+            await backend.generate(
+                model="llama3.1:8b",
+                prompt="test",
+                model_preferences=["qwen2.5:7b", "mistral:latest"],
+            )
+
+    asyncio.run(_run())
+    assert len(captured_requests) == 1
+    assert captured_requests[0].model_preferences == ["qwen2.5:7b", "mistral:latest"]
+
+
+def test_pinned_models_in_status():
+    scheduler = ModelScheduler(pinned_models=["llama3.2:3b"])
+    status = scheduler.get_status()
+    assert "llama3.2:3b" in status["pinned_models"]
+
+
+def test_pinned_profile():
+    profiles = ModelProfiles("/dev/null")
+    profiles.set(ModelProfile(model="llama3.2:3b", pin=True, vram_mb=1920))
+    profiles.set(ModelProfile(model="qwen2.5:7b", pin=False, vram_mb=4700))
+
+    pinned = profiles.get_pinned_models()
+    assert pinned == ["llama3.2:3b"]

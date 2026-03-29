@@ -66,6 +66,7 @@ class LLMManager:
         self._profiles: Optional[ModelProfiles] = None
 
         # Load profiles if path provided
+        pinned_models = None
         if profiles_path:
             self._profiles = ModelProfiles(profiles_path)
             self._profiles.load()
@@ -74,6 +75,7 @@ class LLMManager:
             if model_vram:
                 profile_vram.update(model_vram)
             model_vram = profile_vram
+            pinned_models = self._profiles.get_pinned_models()
 
         if backend == "internal":
             from khonliang.llm.internal import InternalBackend
@@ -83,6 +85,7 @@ class LLMManager:
                 gpus=gpus,
                 max_batch_size=max_batch_size,
                 model_vram=model_vram,
+                pinned_models=pinned_models,
             )
         elif backend == "grpc":
             raise NotImplementedError(
@@ -126,6 +129,7 @@ class LLMManager:
         system: Optional[str] = None,
         priority: int = 0,
         queue: QueueType = QueueType.DEFAULT,
+        model_preferences: Optional[List[str]] = None,
         **kwargs: Any,
     ) -> str:
         """
@@ -140,6 +144,7 @@ class LLMManager:
             system=system,
             priority=priority,
             queue=queue,
+            model_preferences=model_preferences or [],
             **kwargs,
         )
 

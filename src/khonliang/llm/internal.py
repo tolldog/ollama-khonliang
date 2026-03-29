@@ -45,6 +45,7 @@ class InternalBackend:
         gpus: Optional[list] = None,
         max_batch_size: int = 10,
         model_vram: Optional[Dict[str, int]] = None,
+        pinned_models: Optional[list] = None,
     ):
         self._ollama_url = ollama_url
         self._client = OllamaClient(base_url=ollama_url)
@@ -52,6 +53,7 @@ class InternalBackend:
             gpus=gpus,
             max_batch_size=max_batch_size,
             model_vram=model_vram or {},
+            pinned_models=pinned_models,
         )
 
         # Result futures: request_id -> Future
@@ -63,10 +65,31 @@ class InternalBackend:
         self._completed = 0
 
     async def start(self) -> None:
-        """Start the scheduling loop."""
+        """Start the scheduling loop and pre-load pinned models."""
         self._running = True
+
+        # Pre-load pinned models so they are warm on startup
+        for model in sorted(self._scheduler.pinned_models):
+            gpu = self._find_gpu_for_pinned(model)
+            if gpu is not None:
+                logger.info(f"Pre-loading pinned model '{model}' on GPU {gpu.gpu_id}")
+                await self._load_model(model, gpu)
+
         self._loop_task = asyncio.create_task(self._scheduling_loop())
         logger.info("Internal LLM backend started")
+
+    def _find_gpu_for_pinned(self, model: str) -> Optional[GPUSlot]:
+        """Find a suitable GPU for a pinned model, preferring unloaded GPUs."""
+        # Prefer a GPU that has no model loaded yet
+        for gpu in self._scheduler.gpus:
+            if gpu.current_model is None:
+                return gpu
+        # Fall back to the first GPU that can fit the model
+        for gpu in self._scheduler.gpus:
+            model_vram = self._scheduler.model_vram.get(model, 0)
+            if model_vram == 0 or gpu.can_fit(model_vram):
+                return gpu
+        return None
 
     async def stop(self) -> None:
         """Stop the scheduling loop."""
@@ -143,6 +166,7 @@ class InternalBackend:
             max_tokens=kwargs.get("max_tokens", 4000),
             timeout=kwargs.get("timeout", 120.0),
             extra_options=kwargs.get("extra_options"),
+            model_preferences=kwargs.get("model_preferences", []),
         )
         await self.submit(request)
         result = await self.get_result(request.request_id, timeout=request.timeout)
@@ -204,6 +228,14 @@ class InternalBackend:
         """Process a batch of requests for a model on a GPU."""
         # Check if model needs loading
         if gpu.current_model != model:
+            if (
+                gpu.current_model
+                and gpu.current_model in self._scheduler.pinned_models
+            ):
+                logger.debug(
+                    f"GPU {gpu.gpu_id} has pinned model "
+                    f"'{gpu.current_model}', loading '{model}' alongside"
+                )
             await self._load_model(model, gpu)
 
         # Process each request in the batch
