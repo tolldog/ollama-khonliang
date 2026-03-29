@@ -144,20 +144,23 @@ class ModelScheduler:
             for r in queue
         )
 
-        # Swap cost (0 if model is already loaded on this GPU)
+        # Swap cost multiplier (1.0 if loaded, reduced if swap needed)
         if gpu.current_model == model and gpu.model_state == ModelState.LOADED:
-            swap_cost = 0.0
+            swap_factor = 1.0  # no swap needed
         else:
             stats = self._stats.get(model)
-            swap_cost = stats.avg_load_ms / 1000.0 if stats else 5.0  # default 5s
+            swap_ms = stats.avg_load_ms if stats else 5000.0
+            # Swap factor: 0.1 for very expensive swaps, up to 1.0
+            swap_factor = max(0.1, 1.0 - (swap_ms / 30000.0))
 
         # VRAM check — can this GPU fit the model?
         model_vram = self.model_vram.get(model, 0)
         if model_vram > 0 and not gpu.can_fit(model_vram):
             return -1.0  # can't fit
 
-        # Score formula
-        score = (avg_wait * depth * max_priority) - swap_cost
+        # Score formula: always positive when there's work
+        # wait_time ensures starvation prevention (min 0.1 for fresh requests)
+        score = max(0.1, avg_wait) * depth * max_priority * swap_factor
 
         return score
 
