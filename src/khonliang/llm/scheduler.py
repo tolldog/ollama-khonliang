@@ -60,19 +60,16 @@ class ModelScheduler:
         self,
         gpus: Optional[List[GPUSlot]] = None,
         max_batch_size: int = 10,
-        time_slice_ms: float = 30000.0,  # 30s default time slice
         model_vram: Optional[Dict[str, int]] = None,
     ):
         """
         Args:
             gpus: GPU slots available. Default: single unknown GPU.
             max_batch_size: Max requests per batch.
-            time_slice_ms: Max time for a model's batch before re-evaluation.
             model_vram: Optional map of model -> estimated VRAM in MB.
         """
         self.gpus = gpus or [GPUSlot(gpu_id=0)]
         self.max_batch_size = max_batch_size
-        self.time_slice_ms = time_slice_ms
         self.model_vram = model_vram or {}
 
         # Per-model request queues
@@ -101,10 +98,12 @@ class ModelScheduler:
     async def cancel(self, request_id: str) -> bool:
         """Cancel a pending request. Returns True if found."""
         async with self._queue_lock:
-            for model_queue in self._queues.values():
+            for model, model_queue in list(self._queues.items()):
                 for i, req in enumerate(model_queue):
                     if req.request_id == request_id:
                         model_queue.pop(i)
+                        if not model_queue:
+                            del self._queues[model]
                         return True
         return False
 
@@ -164,15 +163,27 @@ class ModelScheduler:
 
         return score
 
-    def best_model_for_gpu(self, gpu: GPUSlot) -> Optional[str]:
-        """Find the highest-scoring model for a specific GPU."""
+    def best_model_for_gpu(
+        self, gpu: GPUSlot, exclude: Optional[set] = None
+    ) -> Optional[str]:
+        """Find the highest-scoring model for a specific GPU.
+
+        Args:
+            gpu: The GPU slot to score against.
+            exclude: Optional set of model names to skip (already assigned).
+        """
         best_model = None
-        best_score = 0.0
+        best_score = float("-inf")
+        exclude = exclude or set()
 
         for model in self._queues:
+            if model in exclude:
+                continue
             if not self._queues[model]:
                 continue
             score = self.score_model(model, gpu)
+            if score == -1.0:
+                continue  # VRAM can't fit
             if score > best_score:
                 best_score = score
                 best_model = model
@@ -192,12 +203,13 @@ class ModelScheduler:
         Returns (model, gpu_slot, batch_of_requests) or None if empty.
         """
         target_gpu = gpu or self.gpus[0]
-        model = self.best_model_for_gpu(target_gpu)
-
-        if model is None:
-            return None
 
         async with self._queue_lock:
+            model = self.best_model_for_gpu(target_gpu)
+
+            if model is None:
+                return None
+
             queue = self._queues.get(model, [])
             if not queue:
                 return None
@@ -218,7 +230,7 @@ class ModelScheduler:
     ) -> List[Tuple[str, GPUSlot, List[InferenceRequest]]]:
         """Get next batch for each GPU that has work."""
         batches = []
-        assigned_models = set()
+        assigned_models: set = set()
 
         for gpu in self.gpus:
             # Prefer keeping current model if it has work
@@ -233,9 +245,9 @@ class ModelScheduler:
                     assigned_models.add(batch[0])
                     continue
 
-            # Otherwise find best model for this GPU
-            model = self.best_model_for_gpu(gpu)
-            if model and model not in assigned_models:
+            # Find best unassigned model for this GPU
+            model = self.best_model_for_gpu(gpu, exclude=assigned_models)
+            if model:
                 batch = await self.next_batch(gpu)
                 if batch:
                     batches.append(batch)

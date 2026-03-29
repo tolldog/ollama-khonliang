@@ -77,6 +77,18 @@ class InternalBackend:
                 await self._loop_task
             except asyncio.CancelledError:
                 pass
+        # Resolve all pending futures with an error before closing
+        for request_id, future in list(self._futures.items()):
+            if not future.done():
+                future.set_result(
+                    InferenceResult(
+                        request_id=request_id,
+                        text="",
+                        model="",
+                        error="Backend stopped",
+                    )
+                )
+        self._futures.clear()
         await self._client.close()
         logger.info("Internal LLM backend stopped")
 
@@ -102,6 +114,8 @@ class InternalBackend:
         try:
             return await asyncio.wait_for(future, timeout=timeout)
         except asyncio.TimeoutError:
+            future.cancel()
+            self._futures.pop(request_id, None)
             return InferenceResult(
                 request_id=request_id,
                 text="",
@@ -127,6 +141,7 @@ class InternalBackend:
             queue=queue,
             temperature=kwargs.get("temperature", 0.7),
             max_tokens=kwargs.get("max_tokens", 4000),
+            timeout=kwargs.get("timeout", 120.0),
         )
         await self.submit(request)
         result = await self.get_result(request.request_id, timeout=request.timeout)
@@ -271,3 +286,4 @@ class InternalBackend:
 
         if not future.done():
             future.set_result(inference_result)
+        self._futures.pop(request.request_id, None)

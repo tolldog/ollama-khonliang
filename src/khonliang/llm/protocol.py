@@ -134,6 +134,7 @@ class ModelStats:
 
     def record_error(self) -> None:
         self.total_errors += 1
+        self.total_requests += 1
 
 
 @dataclass
