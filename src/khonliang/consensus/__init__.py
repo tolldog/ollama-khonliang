@@ -6,6 +6,7 @@ from khonliang.consensus.models import (
     ConsensusResult,
 )
 from khonliang.consensus.team import AgentTeam
+from khonliang.consensus.vocabulary import ActionVocabulary
 from khonliang.consensus.weights import AdaptiveWeightManager, WeightScheduler
 
 __all__ = [
@@ -17,4 +18,5 @@ __all__ = [
     "AgentTeam",
     "AdaptiveWeightManager",
     "WeightScheduler",
+    "ActionVocabulary",
 ]
