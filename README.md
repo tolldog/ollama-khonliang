@@ -14,10 +14,15 @@ _A llama rancher_ — multi-agent LLM orchestration framework for [Ollama](https
 - **Scoped RAG** — SQLite FTS5 retrieval with per-agent knowledge scopes (global, domain, conversational, expert)
 - **Structured output parsing** — extracts typed JSON from LLM fenced code blocks with auto-cleanup
 - **Flow classification** — LLM-based intent classification within conversation flows
+- **Three-tier knowledge** — axioms (immutable rules), imported (user docs), derived (from interactions), with librarian agent
+- **Research pool** — managed worker threads with BaseEngine/CompositeResearcher, multi-engine parallel search
+- **LLM manager** — score-based inference scheduler with model preferences, pinning, VRAM budgeting, and benchmarking
+- **Query parser** — schema-driven LLM extraction of structured parameters from natural language
 - **Training pipeline** — interaction logging, feedback collection, JSONL export (alpaca/sharegpt/completion)
 - **Mattermost integration** — WebSocket bot with @mention handlers and typing indicators
-- **mDNS service discovery** — advertise and discover services on the local network (planned)
-- **Agent gateway** — Redis Streams message bus for distributed agents (planned)
+- **WebSocket chat server** — session tracking, role routing, feedback, knowledge indexing
+- **mDNS service discovery** — advertise and discover services on the local network
+- **Agent gateway** — Redis Streams message bus for distributed agents
 
 ## Installation
 
@@ -133,31 +138,41 @@ khonliang/
 ├── errors.py          # Typed error hierarchy
 ├── personalities.py   # Agent personality configs & registry
 ├── roles/             # Base role & message router
-├── consensus/         # Multi-agent voting & team orchestration
+├── consensus/         # Multi-agent voting, team orchestration, adaptive weights
 ├── routing/           # Flow classifier & semantic intent router
-├── parsing/           # Structured JSON extraction from LLM output
+├── parsing/           # Structured JSON extraction + LLM query parser
 ├── rag/               # Document retrieval (FTS5) with scoped access
-├── agents/            # Generic config registry
-├── integrations/      # Mattermost bot (+ future: Telegram, etc.)
+├── knowledge/         # Three-tier store, librarian agent, ingestion pipeline
+├── research/          # Worker pool, engines, composite researcher, triggers
+├── llm/               # Inference scheduler, model profiles, benchmarking
+├── agents/            # Activation rules, capabilities, config registry
+├── integrations/      # Mattermost bot, WebSocket chat server
 ├── training/          # Feedback collection & fine-tuning export
-├── discovery/         # mDNS service discovery (planned)
-├── gateway/           # Redis Streams agent bus (planned)
-└── debate/            # Structured agent debate (planned)
+├── gateway/           # Redis Streams agent bus
+├── discovery/         # mDNS service discovery
+└── debate/            # Structured agent debate
 ```
 
 ## Module Overview
 
-| Layer         | Module                                   | Description                                                  |
-| ------------- | ---------------------------------------- | ------------------------------------------------------------ |
-| Connection    | `client`, `pool`, `health`, `errors`     | Async Ollama client, model pool, health tracking             |
-| Roles         | `roles.base`, `roles.router`             | Abstract role base class, priority-ordered message router    |
-| Personalities | `personalities`                          | Named personas with voting weights and @mention resolution   |
-| Consensus     | `consensus.models`, `engine`, `team`     | Weighted voting, VETO blocking, parallel agent orchestration |
-| Routing       | `routing.flow`, `routing.semantic`       | LLM flow classification, embedding-based intent routing      |
-| Parsing       | `parsing.structured`                     | Extract typed JSON from fenced LLM code blocks               |
-| RAG           | `rag.retriever`, `rag.scoped`            | FTS5 search, agent-scoped knowledge retrieval                |
-| Training      | `training.feedback`, `training.exporter` | Interaction logging, feedback, JSONL export                  |
-| Integrations  | `integrations.mattermost`                | Mattermost WebSocket bot                                     |
+| Layer         | Module                                              | Description                                                     |
+| ------------- | --------------------------------------------------- | --------------------------------------------------------------- |
+| Connection    | `client`, `pool`, `health`, `errors`                | Async Ollama client, model pool, health tracking                |
+| Roles         | `roles.base`, `roles.router`                        | Abstract role base class, priority-ordered message router       |
+| Personalities | `personalities`                                     | Named personas with voting weights and @mention resolution      |
+| Consensus     | `consensus.models`, `engine`, `team`, `weights`     | Weighted voting, VETO, parallel orchestration, adaptive weights |
+| Routing       | `routing.flow`, `routing.semantic`                  | LLM flow classification, embedding-based intent routing         |
+| Parsing       | `parsing.structured`, `parsing.query_parser`        | Typed JSON extraction, schema-driven LLM query parsing          |
+| RAG           | `rag.retriever`, `rag.scoped`                       | FTS5 search, agent-scoped knowledge retrieval                   |
+| Knowledge     | `knowledge.store`, `librarian`, `ingestion`         | Three-tier RAG (axiom/imported/derived), librarian agent        |
+| Research      | `research.pool`, `engine`, `composite`, `trigger`   | Managed worker threads, multi-engine parallel search            |
+| LLM           | `llm.manager`, `scheduler`, `profiles`, `benchmark` | Score-based inference scheduling, model profiling               |
+| Agents        | `agents.activation`, `capabilities`, `registry`     | Activation rules, capability discovery, config persistence      |
+| Integrations  | `integrations.mattermost`, `websocket_chat`         | Mattermost bot, WebSocket chat with sessions                    |
+| Training      | `training.feedback`, `training.exporter`            | Interaction logging, feedback, JSONL export                     |
+| Gateway       | `gateway.gateway`, `messages`, `sessions`           | Redis Streams message bus, agent messaging                      |
+| Discovery     | `discovery.mdns`                                    | mDNS service advertising via zeroconf                           |
+| Debate        | `debate.orchestrator`                               | Structured agent disagreement resolution                        |
 
 ## License
 
