@@ -118,8 +118,6 @@ class ReportBuilder:
             sections.append("")
             sections.append(extra_context)
 
-        # TODO: Add tests for ReportBuilder (out of scope for this PR).
-
         return "\n".join(sections)
 
     def topic_report(self, query: str, scope: Optional[str] = None) -> str:

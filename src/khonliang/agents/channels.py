@@ -134,6 +134,7 @@ class ChannelManager:
         if not channel:
             return False
         channel.subscribers.discard(agent_id)
+        self._handlers.pop((agent_id, channel_name), None)
         return True
 
     def publish(self, channel_name: str, message: ChannelMessage) -> int:

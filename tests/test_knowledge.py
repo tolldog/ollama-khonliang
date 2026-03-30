@@ -2,9 +2,11 @@
 
 import os
 import tempfile
+import time
 
 from khonliang.knowledge.ingestion import IngestionPipeline
 from khonliang.knowledge.librarian import Librarian
+from khonliang.knowledge.reports import ReportBuilder
 from khonliang.knowledge.store import KnowledgeEntry, KnowledgeStore, Tier
 
 
@@ -202,3 +204,158 @@ def test_stats():
     assert stats["by_tier"]["imported"] == 1
     assert stats["by_tier"]["derived"] == 1
     os.unlink(path)
+
+
+# ------------------------------------------------------------------
+# ReportBuilder tests
+# ------------------------------------------------------------------
+
+
+def _temp_store():
+    # re-define locally so tests below don't depend on module-level helper
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    return KnowledgeStore(path), path
+
+
+def _populated_store():
+    store, path = _temp_store()
+
+    store.set_axiom("rule1", "Always cite your sources.")
+
+    store.add(KnowledgeEntry(
+        id="i1",
+        tier=Tier.IMPORTED,
+        title="Migration notes",
+        content="The family moved west in the 1800s.",
+        scope="toll",
+        source="manual",
+        confidence=0.95,
+    ))
+    store.add(KnowledgeEntry(
+        id="d1",
+        tier=Tier.DERIVED,
+        title="Roger Tolle birth",
+        content="Roger Tolle was born around 1642 in Wales.",
+        scope="toll",
+        source="researcher",
+        confidence=0.8,
+    ))
+    # Add a second derived entry with a slightly later updated_at so ordering
+    # is deterministic in the "recent" assertions.
+    time.sleep(0.01)
+    store.add(KnowledgeEntry(
+        id="d2",
+        tier=Tier.DERIVED,
+        title="Thomas origins",
+        content="Thomas family came from Ohio.",
+        scope="thomas",
+        source="researcher",
+        confidence=0.75,
+    ))
+    return store, path
+
+
+def test_report_builder_no_store():
+    builder = ReportBuilder()
+    report = builder.knowledge_report()
+    assert "No knowledge store" in report
+
+    session = builder.session_report()
+    assert "Session Summary" in session
+
+
+def test_knowledge_report_sections():
+    store, path = _populated_store()
+    try:
+        builder = ReportBuilder(store)
+        report = builder.knowledge_report()
+
+        assert "# Knowledge Report" in report
+        assert "Total entries: 4" in report
+        assert "Axioms (Tier 1): 1" in report
+        assert "Imported (Tier 2): 1" in report
+        assert "Derived (Tier 3): 2" in report
+        # Recent research section should list derived entries
+        assert "Recent Research" in report
+        assert "Roger Tolle birth" in report
+    finally:
+        os.unlink(path)
+
+
+def test_knowledge_report_recent_ordering():
+    """Most-recently updated derived entry appears first."""
+    store, path = _populated_store()
+    try:
+        builder = ReportBuilder(store)
+        report = builder.knowledge_report()
+
+        # d2 ("Thomas origins") was added last so should appear before d1
+        idx_d2 = report.find("Thomas origins")
+        idx_d1 = report.find("Roger Tolle birth")
+        assert idx_d2 < idx_d1, "Most recent entry should appear first"
+    finally:
+        os.unlink(path)
+
+
+def test_session_report_summary():
+    store, path = _populated_store()
+    try:
+        builder = ReportBuilder(store)
+        report = builder.session_report()
+
+        assert "# Session Summary" in report
+        assert "4 entries" in report
+        # Should list recent derived titles
+        assert "Roger Tolle birth" in report or "Thomas origins" in report
+    finally:
+        os.unlink(path)
+
+
+def test_session_report_extra_context():
+    store, path = _populated_store()
+    try:
+        builder = ReportBuilder(store)
+        report = builder.session_report(extra_context="Tip: check parish records.")
+
+        assert "Tip: check parish records." in report
+    finally:
+        os.unlink(path)
+
+
+def test_topic_report_found():
+    store, path = _populated_store()
+    try:
+        builder = ReportBuilder(store)
+        report = builder.topic_report("Wales")
+
+        assert "# Topic: Wales" in report
+        assert "Roger Tolle birth" in report
+        assert "RESEARCHED" in report
+    finally:
+        os.unlink(path)
+
+
+def test_topic_report_no_results():
+    store, path = _populated_store()
+    try:
+        builder = ReportBuilder(store)
+        report = builder.topic_report("nonexistent_xyzzy")
+
+        assert "No knowledge found" in report
+    finally:
+        os.unlink(path)
+
+
+def test_topic_report_scoped():
+    store, path = _populated_store()
+    try:
+        builder = ReportBuilder(store)
+        # "Ohio" appears in the thomas-scoped entry only
+        report = builder.topic_report("Ohio", scope="thomas")
+
+        assert "Thomas origins" in report
+        # toll-scoped entry should not appear
+        assert "Migration notes" not in report
+    finally:
+        os.unlink(path)

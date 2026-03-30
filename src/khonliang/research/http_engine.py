@@ -91,7 +91,7 @@ class HttpEngine(BaseEngine):
         # Parse results
         raw_results = response.get("results", [])
         if not isinstance(raw_results, list):
-            raw_results = [response]
+            raw_results = [raw_results]
 
         results = []
         for item in raw_results:
@@ -104,8 +104,6 @@ class HttpEngine(BaseEngine):
             ))
 
         return results
-
-    # TODO: Add tests for HttpEngine (out of scope for this PR).
 
     def _post(self, payload: Dict) -> Optional[Dict]:
         """Synchronous POST to the service."""
