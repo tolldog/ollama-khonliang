@@ -32,7 +32,7 @@ Example:
 import asyncio
 import logging
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from khonliang.consensus.engine import ConsensusEngine
 from khonliang.consensus.models import AgentVote, ConsensusResult
@@ -59,13 +59,17 @@ class AgentTeam:
         agent_timeout: float = 30.0,
         enable_caching: bool = True,
         cache_ttl_seconds: float = 300.0,
+        summarizer_fn: Optional[Callable] = None,
+        rounds: int = 1,
     ):
         self.agents = agents
         self.consensus_engine = consensus_engine or ConsensusEngine()
         self.agent_timeout = agent_timeout
         self.enable_caching = enable_caching
         self._cache_ttl = cache_ttl_seconds
-        self._vote_cache: Dict[str, tuple] = {}  # {key: (votes, timestamp)}
+        self._result_cache: Dict[str, tuple] = {}  # {key: (ConsensusResult, timestamp)}
+        self.summarizer_fn = summarizer_fn
+        self.rounds = max(1, rounds)
 
         logger.info(f"AgentTeam initialized with {len(agents)} agents")
 
@@ -79,6 +83,11 @@ class AgentTeam:
         """
         Evaluate a subject with all agents and return consensus.
 
+        When rounds > 1 and summarizer_fn is set, runs multiple deliberation
+        rounds. Each round's summary is prepended to the context for the
+        next round, allowing agents to refine their votes based on prior
+        consensus.
+
         Args:
             subject:   The thing being evaluated (ticket, document, code, etc.)
             context:   Optional metadata dict passed to each agent
@@ -86,27 +95,76 @@ class AgentTeam:
             use_cache: Use cached votes if available
 
         Returns:
-            ConsensusResult with action, confidence, and all votes
+            ConsensusResult with action, confidence, all votes, and
+            optional summary from summarizer_fn
         """
         ctx = context or {}
         key = cache_key or subject
 
         if use_cache and self.enable_caching:
-            cached = self._get_cached(key)
-            if cached is not None:
-                logger.debug(f"Using cached votes for '{key[:40]}'")
-                return self.consensus_engine.calculate_consensus(cached)
+            cached_result = self._get_cached(key)
+            if cached_result is not None:
+                logger.debug(f"Using cached result for '{key[:40]}'")
+                return cached_result
 
-        votes = await self._collect_votes(subject, ctx)
+        summary = None
+        votes: List[AgentVote] = []
 
-        if self.enable_caching:
-            self._cache_votes(key, votes)
+        for round_num in range(self.rounds):
+            round_ctx = dict(ctx)
+
+            # Inject prior round's summary into context for rounds > 0
+            if summary is not None:
+                round_ctx["prior_summary"] = summary
+
+            votes = await self._collect_votes(subject, round_ctx)
+
+            # Generate summary after collecting votes
+            if self.summarizer_fn is not None:
+                try:
+                    summary = await self._call_summarizer(votes, subject, round_ctx)
+                except Exception as e:
+                    logger.error(f"Summarizer failed in round {round_num + 1}: {e}")
+                    summary = None
+
+            # Only continue to next round if we have a summarizer
+            if self.summarizer_fn is None:
+                break
+
+            if round_num < self.rounds - 1:
+                logger.debug(
+                    f"Round {round_num + 1}/{self.rounds} complete, "
+                    f"continuing deliberation"
+                )
 
         result = self.consensus_engine.calculate_consensus(votes)
+        result.summary = summary
+        # Track actual rounds completed (loop runs 0..rounds-1)
+        actual_rounds = min(round_num + 1, self.rounds) if self.rounds > 1 else 0
+        result.debate_rounds = actual_rounds
+
+        if self.enable_caching:
+            self._cache_result(key, result)
+
         logger.info(
             f"Consensus for '{subject[:40]}': {result.action} "
-            f"(confidence={result.confidence:.2f}, {len(votes)} votes)"
+            f"(confidence={result.confidence:.2f}, {len(votes)} votes, "
+            f"rounds={self.rounds})"
         )
+        return result
+
+    async def _call_summarizer(
+        self,
+        votes: List[AgentVote],
+        subject: str,
+        context: Dict[str, Any],
+    ) -> Optional[str]:
+        """Call the summarizer function, handling sync, async, and awaitable results."""
+        import inspect
+
+        result = self.summarizer_fn(votes, subject, context)
+        if inspect.isawaitable(result):
+            return await result
         return result
 
     def evaluate_sync(
@@ -151,25 +209,25 @@ class AgentTeam:
                 logger.error(f"Agent '{agent_id}' failed: {e}")
         return votes
 
-    def _get_cached(self, key: str) -> Optional[List[AgentVote]]:
-        if key in self._vote_cache:
-            votes, ts = self._vote_cache[key]
+    def _get_cached(self, key: str) -> Optional[ConsensusResult]:
+        if key in self._result_cache:
+            result, ts = self._result_cache[key]
             if time.time() - ts < self._cache_ttl:
-                return votes
+                return result
         return None
 
-    def _cache_votes(self, key: str, votes: List[AgentVote]) -> None:
-        self._vote_cache[key] = (votes, time.time())
-        if len(self._vote_cache) > 500:
+    def _cache_result(self, key: str, result: ConsensusResult) -> None:
+        self._result_cache[key] = (result, time.time())
+        if len(self._result_cache) > 500:
             now = time.time()
-            self._vote_cache = {
-                k: v for k, v in self._vote_cache.items()
+            self._result_cache = {
+                k: v for k, v in self._result_cache.items()
                 if now - v[1] < self._cache_ttl
             }
 
     def clear_cache(self) -> None:
-        """Remove all cached vote results."""
-        self._vote_cache.clear()
+        """Remove all cached results."""
+        self._result_cache.clear()
 
     def get_stats(self) -> Dict[str, Any]:
         """Return team configuration and cache statistics."""
@@ -177,7 +235,7 @@ class AgentTeam:
             "agent_count": len(self.agents),
             "agents": [a.agent_id for a in self.agents],
             "caching_enabled": self.enable_caching,
-            "cache_size": len(self._vote_cache),
+            "cache_size": len(self._result_cache),
             "cache_ttl_seconds": self._cache_ttl,
             "agent_timeout_seconds": self.agent_timeout,
         }

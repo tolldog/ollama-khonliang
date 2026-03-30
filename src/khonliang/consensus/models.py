@@ -115,6 +115,7 @@ class ConsensusResult:
     votes: List[AgentVote] = field(default_factory=list)
     scores: Dict[str, float] = field(default_factory=dict)
     reason: Optional[str] = None
+    summary: Optional[str] = None
     debate_rounds: int = 0
     judge_overridden: bool = False
     original_action: Optional[str] = None
@@ -134,6 +135,7 @@ class ConsensusResult:
             "votes": [v.to_dict() for v in self.votes],
             "scores": self.scores,
             "reason": self.reason,
+            "summary": self.summary,
             "debate_rounds": self.debate_rounds,
             "judge_overridden": self.judge_overridden,
             "original_action": self.original_action,
@@ -150,6 +152,7 @@ class ConsensusResult:
             votes=[AgentVote.from_dict(v) for v in data.get("votes", [])],
             scores=data.get("scores", {}),
             reason=data.get("reason"),
+            summary=data.get("summary"),
             debate_rounds=data.get("debate_rounds", 0),
             judge_overridden=data.get("judge_overridden", False),
             original_action=data.get("original_action"),

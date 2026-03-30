@@ -76,12 +76,14 @@ class OllamaClient:
         base_url: str = DEFAULT_BASE_URL,
         timeout: int = DEFAULT_TIMEOUT,
         model_timeouts: Optional[Dict[str, int]] = None,
+        default_keep_alive: Optional[str] = None,
     ):
         self.model = model
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self._model_timeouts = model_timeouts or DEFAULT_MODEL_TIMEOUTS
         self._session: Optional[aiohttp.ClientSession] = None
+        self.default_keep_alive: Optional[str] = default_keep_alive
 
     def _get_timeout(self, model_name: str) -> int:
         return self._model_timeouts.get(model_name, self.timeout)
@@ -113,6 +115,7 @@ class OllamaClient:
         max_tokens: int = MAX_TOKENS,
         model: Optional[str] = None,
         extra_options: Optional[Dict[str, Any]] = None,
+        keep_alive: Optional[str] = None,
     ) -> str:
         """Generate text from a prompt. Returns the response string.
 
@@ -123,6 +126,8 @@ class OllamaClient:
             max_tokens: Maximum tokens to generate.
             model: Override the client's default model.
             extra_options: Additional Ollama options merged into the request.
+            keep_alive: Override keep_alive duration (e.g. "5m", "0", "-1").
+                Falls back to default_keep_alive if not set.
         """
         result = await self.generate_with_metrics(
             prompt=prompt,
@@ -131,6 +136,7 @@ class OllamaClient:
             max_tokens=max_tokens,
             model=model,
             extra_options=extra_options,
+            keep_alive=keep_alive,
         )
         return result.text
 
@@ -142,6 +148,7 @@ class OllamaClient:
         max_tokens: int = MAX_TOKENS,
         model: Optional[str] = None,
         extra_options: Optional[Dict[str, Any]] = None,
+        keep_alive: Optional[str] = None,
     ) -> GenerationResult:
         """Generate text and return a GenerationResult with token metrics.
 
@@ -152,6 +159,8 @@ class OllamaClient:
             max_tokens: Maximum tokens to generate.
             model: Override the client's default model.
             extra_options: Additional Ollama options merged into the request.
+            keep_alive: Override keep_alive duration (e.g. "5m", "0", "-1").
+                Falls back to default_keep_alive if not set.
         """
         model_name = model or self.model
         model_timeout = self._get_timeout(model_name)
@@ -168,6 +177,10 @@ class OllamaClient:
         }
         if system:
             payload["system"] = system
+
+        effective_keep_alive = keep_alive or self.default_keep_alive
+        if effective_keep_alive is not None:
+            payload["keep_alive"] = effective_keep_alive
 
         last_error: Optional[Exception] = None
         for attempt in range(RETRY_MAX_ATTEMPTS):
@@ -237,6 +250,7 @@ class OllamaClient:
         max_tokens: int = MAX_TOKENS,
         model: Optional[str] = None,
         constrained: bool = False,
+        keep_alive: Optional[str] = None,
     ) -> Dict:
         """
         Generate structured JSON output.
@@ -259,6 +273,7 @@ class OllamaClient:
             # Use Ollama's native JSON mode
             model_name = model or self.model
             model_timeout = self._get_timeout(model_name)
+            effective_keep_alive = keep_alive or self.default_keep_alive
             payload: Dict[str, Any] = {
                 "model": model_name,
                 "prompt": prompt,
@@ -270,6 +285,8 @@ class OllamaClient:
                     "num_predict": max_tokens,
                 },
             }
+            if effective_keep_alive is not None:
+                payload["keep_alive"] = effective_keep_alive
             try:
                 result = await self._do_generate(
                     payload, model_name, model_timeout
@@ -280,7 +297,7 @@ class OllamaClient:
 
         response = await self.generate(
             prompt=prompt, system=json_system, temperature=temperature,
-            max_tokens=max_tokens, model=model,
+            max_tokens=max_tokens, model=model, keep_alive=keep_alive,
         )
         return self._parse_json(response)
 
@@ -321,6 +338,7 @@ class OllamaClient:
         max_tokens: int = MAX_TOKENS,
         model: Optional[str] = None,
         extra_options: Optional[Dict[str, Any]] = None,
+        keep_alive: Optional[str] = None,
     ) -> AsyncGenerator[str, None]:
         """
         Stream text tokens as they are generated.
@@ -347,6 +365,10 @@ class OllamaClient:
         }
         if system:
             payload["system"] = system
+
+        effective_keep_alive = keep_alive or self.default_keep_alive
+        if effective_keep_alive is not None:
+            payload["keep_alive"] = effective_keep_alive
 
         per_request_timeout = aiohttp.ClientTimeout(total=model_timeout)
 
