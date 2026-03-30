@@ -316,9 +316,11 @@ class ChatServer:
 
     @property
     def active_sessions(self) -> int:
+        """Number of currently connected client sessions."""
         return len(self._sessions)
 
     def get_status(self) -> Dict[str, Any]:
+        """Return server status including session count and available roles."""
         return {
             "active_sessions": self.active_sessions,
             "roles": list(self.roles.keys()),

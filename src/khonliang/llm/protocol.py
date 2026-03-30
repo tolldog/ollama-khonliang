@@ -57,6 +57,7 @@ class InferenceRequest:
     submitted_at: float = field(default_factory=time.time)
 
     def to_dict(self) -> Dict[str, Any]:
+        """Return a serializable summary (prompt truncated to 100 chars)."""
         return {
             "request_id": self.request_id,
             "model": self.model,
@@ -83,9 +84,11 @@ class InferenceResult:
 
     @property
     def success(self) -> bool:
+        """True if inference completed without error."""
         return self.error is None
 
     def to_dict(self) -> Dict[str, Any]:
+        """Return a serializable summary of the inference result."""
         return {
             "request_id": self.request_id,
             "model": self.model,
@@ -137,6 +140,7 @@ class ModelStats:
     _load_times: List[float] = field(default_factory=list)
 
     def record_inference(self, duration_ms: float) -> None:
+        """Record an inference duration and update the rolling average."""
         self._inference_times.append(duration_ms)
         # Keep last 100 for rolling average
         if len(self._inference_times) > 100:
@@ -147,12 +151,14 @@ class ModelStats:
         self.total_requests += 1
 
     def record_load(self, duration_ms: float) -> None:
+        """Record a model load duration and update the rolling average."""
         self._load_times.append(duration_ms)
         if len(self._load_times) > 20:
             self._load_times = self._load_times[-20:]
         self.avg_load_ms = sum(self._load_times) / len(self._load_times)
 
     def record_error(self) -> None:
+        """Increment the error and total request counters."""
         self.total_errors += 1
         self.total_requests += 1
 

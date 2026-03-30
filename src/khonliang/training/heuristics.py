@@ -73,10 +73,12 @@ class Heuristic:
 
     @property
     def success_rate(self) -> float:
+        """Ratio of successes to total outcomes, or 0.0 if none recorded."""
         total = self.success_count + self.failure_count
         return self.success_count / total if total > 0 else 0.0
 
     def to_dict(self) -> Dict[str, Any]:
+        """Return a serializable summary of the heuristic."""
         return {
             "rule": self.rule,
             "confidence": self.confidence,
@@ -392,6 +394,7 @@ class HeuristicPool:
             conn.close()
 
     def get_stats(self) -> Dict[str, Any]:
+        """Return total outcome and heuristic counts."""
         conn = self._conn()
         try:
             outcomes = conn.execute("SELECT COUNT(*) FROM outcomes").fetchone()[0]

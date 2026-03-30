@@ -214,6 +214,7 @@ class ResearchPool:
 
     @property
     def is_running(self) -> bool:
+        """True if the worker pool is currently running."""
         return self._running
 
     # ------------------------------------------------------------------

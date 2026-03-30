@@ -75,10 +75,12 @@ class ServiceAdvertiser:
             self.enabled = False
 
     def register_service(self, service: ServiceDefinition) -> None:
+        """Add a service definition to be advertised on start."""
         self.services.append(service)
         logger.debug(f"Registered service: {service.name} on port {service.port}")
 
     def update_service_port(self, name: str, port: int) -> bool:
+        """Update the port for a registered service by name. Returns True if found."""
         for service in self.services:
             if service.name == name:
                 service.port = port
@@ -122,6 +124,7 @@ class ServiceAdvertiser:
         )
 
     def start(self) -> bool:
+        """Start mDNS advertisement for all registered services. Returns True on success."""
         if not self.enabled:
             logger.info("mDNS advertisement disabled")
             return False
@@ -178,6 +181,7 @@ class ServiceAdvertiser:
             return False
 
     def stop(self) -> None:
+        """Unregister all services and close the zeroconf instance."""
         if not self._started or not self._zeroconf:
             return
 
@@ -199,6 +203,7 @@ class ServiceAdvertiser:
         logger.info("mDNS advertiser stopped")
 
     def get_status(self) -> Dict:
+        """Return current advertiser status including registered services."""
         return {
             "enabled": self.enabled,
             "started": self._started,

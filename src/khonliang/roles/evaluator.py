@@ -49,10 +49,12 @@ class EvalResult:
 
     @property
     def high_issues(self) -> List[EvalIssue]:
+        """Issues with severity 'high'."""
         return [i for i in self.issues if i.severity == "high"]
 
     @property
     def medium_issues(self) -> List[EvalIssue]:
+        """Issues with severity 'medium'."""
         return [i for i in self.issues if i.severity == "medium"]
 
 
@@ -107,6 +109,7 @@ class SpeculationRule(EvalRule):
         ]
 
     def check(self, response, query="", metadata=None):
+        """Flag responses with too many speculative phrases."""
         resp_lower = response.lower()
         count = sum(1 for p in self.speculation_phrases if p in resp_lower)
         if count >= self.max_phrases:
@@ -136,6 +139,7 @@ class UncertaintyRule(EvalRule):
         ]
 
     def check(self, response, query="", metadata=None):
+        """Flag responses where the agent expresses uncertainty."""
         resp_lower = response.lower()
         for phrase in self.phrases:
             if phrase in resp_lower:

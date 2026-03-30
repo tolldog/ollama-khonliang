@@ -47,6 +47,7 @@ class KnowledgeEntry:
     access_count: int = 0
 
     def to_dict(self) -> Dict[str, Any]:
+        """Serialize entry to a plain dict."""
         return {
             "id": self.id,
             "tier": self.tier.value,

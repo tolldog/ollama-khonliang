@@ -62,6 +62,7 @@ class AdaptiveWeightManager:
 
     @property
     def current_weights(self) -> Dict[str, float]:
+        """Return a copy of the current agent weights."""
         return self._current_weights.copy()
 
     def calculate_weights(
@@ -135,12 +136,14 @@ class AdaptiveWeightManager:
         logger.info("Reset agent weights to base values")
 
     def get_weight_changes(self) -> Dict[str, float]:
+        """Return the delta between current and base weights per agent."""
         return {
             agent_id: self._current_weights.get(agent_id, 0) - base
             for agent_id, base in self.base_weights.items()
         }
 
     def to_dict(self) -> Dict[str, Any]:
+        """Serialize weight manager state to a plain dict."""
         return {
             "base_weights": self.base_weights,
             "current_weights": self._current_weights,
@@ -151,6 +154,7 @@ class AdaptiveWeightManager:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AdaptiveWeightManager":
+        """Restore a weight manager from a serialized dict."""
         manager = cls(
             base_weights=data.get("base_weights"),
             min_weight=data.get("min_weight", cls.MIN_WEIGHT),
@@ -181,6 +185,7 @@ class WeightScheduler:
         self._last_update = None
 
     def should_update(self) -> bool:
+        """True if enough time has elapsed since the last weight update."""
         from datetime import datetime, timedelta
 
         if self._last_update is None:
@@ -193,6 +198,7 @@ class WeightScheduler:
         performances: Dict[str, AgentPerformance],
         regime: str = "normal",
     ) -> Dict[str, float]:
+        """Recalculate weights from performances and record the update time."""
         from datetime import datetime
 
         weights = self.manager.calculate_weights(performances, regime)

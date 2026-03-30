@@ -328,9 +328,11 @@ class DebateOrchestrator:
                 return
 
     def get_debate_history(self) -> List[Dict[str, Any]]:
+        """Return a copy of all recorded debate summaries."""
         return list(self._debate_history)
 
     def get_stats(self) -> Dict[str, Any]:
+        """Return aggregate debate statistics and current config."""
         total = len(self._debate_history)
         resolved = sum(1 for d in self._debate_history if d["resolved"])
         return {

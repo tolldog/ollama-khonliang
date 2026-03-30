@@ -45,6 +45,7 @@ class ResearchTask:
     created_at: float = field(default_factory=time.time)
 
     def to_dict(self) -> Dict[str, Any]:
+        """Return a serializable dict of the research task."""
         return {
             "task_id": self.task_id,
             "task_type": self.task_type,
@@ -84,6 +85,7 @@ class ResearchResult:
     completed_at: float = field(default_factory=time.time)
 
     def to_dict(self) -> Dict[str, Any]:
+        """Return a serializable dict of the research result."""
         return {
             "task_id": self.task_id,
             "task_type": self.task_type,

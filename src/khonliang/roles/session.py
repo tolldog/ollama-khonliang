@@ -124,17 +124,21 @@ class SessionContext:
 
     @property
     def turn_count(self) -> int:
+        """Number of exchanges in this session."""
         return len(self.exchanges)
 
     @property
     def last_role(self) -> str:
+        """Role name from the most recent exchange, or empty string."""
         return self.exchanges[-1].role if self.exchanges else ""
 
     @property
     def last_response(self) -> str:
+        """Agent response from the most recent exchange, or empty string."""
         return self.exchanges[-1].agent_response if self.exchanges else ""
 
     def to_dict(self) -> Dict[str, Any]:
+        """Serialize session state to a dict (topic, entities, recent turns)."""
         return {
             "session_id": self.session_id,
             "turn_count": self.turn_count,

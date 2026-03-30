@@ -89,6 +89,7 @@ class LogObserver(BaseObserver):
         self.level = level
 
     def on_event(self, event: Dict[str, Any]) -> None:
+        """Log the event at the configured level."""
         event_type = event.get("type", event.get("intent", "?"))
         sender = event.get("sender", event.get("from_agent_id", "?"))
         channel = event.get("channel", "")
@@ -121,6 +122,7 @@ class WebhookObserver(BaseObserver):
         self.timeout = timeout
 
     def on_event(self, event: Dict[str, Any]) -> None:
+        """POST the event to the webhook URL in a background thread."""
         # Fire-and-forget: run the POST in a daemon thread so we don't
         # block the gateway's notify loop.
         thread = threading.Thread(
@@ -154,4 +156,5 @@ class CallbackObserver(BaseObserver):
         self.callback = callback
 
     def on_event(self, event: Dict[str, Any]) -> None:
+        """Invoke the registered callback with the event."""
         self.callback(event)

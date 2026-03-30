@@ -78,6 +78,7 @@ class ParsedBlock:
     raw_response: str = ""  # Original response with block stripped
 
     def to_dict(self) -> dict:
+        """Return a serializable dict of parsed items and metadata."""
         return {
             "items": [asdict(i) if hasattr(i, "__dataclass_fields__") else i for i in self.items],
             "metadata": self.metadata,

@@ -88,10 +88,12 @@ class AgentGateway:
 
     @property
     def is_running(self) -> bool:
+        """Whether the gateway is currently running."""
         return self._running
 
     @property
     def metrics(self) -> GatewayMetrics:
+        """Current gateway metrics (sent/received/failed counters)."""
         return self._metrics
 
     # ------------------------------------------------------------------

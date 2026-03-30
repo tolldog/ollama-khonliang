@@ -67,10 +67,12 @@ class BaseRole(ABC):
 
     @property
     def client(self) -> OllamaClient:
+        """OllamaClient instance for this role's configured model."""
         return self._model_pool.get_client(self.role)
 
     @property
     def system_prompt(self) -> str:
+        """System prompt for this role, or empty string if unset."""
         return self._system_prompt or ""
 
     def load_prompt_file(self, filename: str, fallback: str = "") -> str:
