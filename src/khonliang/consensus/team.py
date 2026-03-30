@@ -32,7 +32,7 @@ Example:
 import asyncio
 import logging
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from khonliang.consensus.engine import ConsensusEngine
 from khonliang.consensus.models import AgentVote, ConsensusResult
@@ -59,6 +59,8 @@ class AgentTeam:
         agent_timeout: float = 30.0,
         enable_caching: bool = True,
         cache_ttl_seconds: float = 300.0,
+        summarizer_fn: Optional[Callable] = None,
+        rounds: int = 1,
     ):
         self.agents = agents
         self.consensus_engine = consensus_engine or ConsensusEngine()
@@ -66,6 +68,8 @@ class AgentTeam:
         self.enable_caching = enable_caching
         self._cache_ttl = cache_ttl_seconds
         self._vote_cache: Dict[str, tuple] = {}  # {key: (votes, timestamp)}
+        self.summarizer_fn = summarizer_fn
+        self.rounds = max(1, rounds)
 
         logger.info(f"AgentTeam initialized with {len(agents)} agents")
 
@@ -79,6 +83,11 @@ class AgentTeam:
         """
         Evaluate a subject with all agents and return consensus.
 
+        When rounds > 1 and summarizer_fn is set, runs multiple deliberation
+        rounds. Each round's summary is prepended to the context for the
+        next round, allowing agents to refine their votes based on prior
+        consensus.
+
         Args:
             subject:   The thing being evaluated (ticket, document, code, etc.)
             context:   Optional metadata dict passed to each agent
@@ -86,7 +95,8 @@ class AgentTeam:
             use_cache: Use cached votes if available
 
         Returns:
-            ConsensusResult with action, confidence, and all votes
+            ConsensusResult with action, confidence, all votes, and
+            optional summary from summarizer_fn
         """
         ctx = context or {}
         key = cache_key or subject
@@ -97,16 +107,60 @@ class AgentTeam:
                 logger.debug(f"Using cached votes for '{key[:40]}'")
                 return self.consensus_engine.calculate_consensus(cached)
 
-        votes = await self._collect_votes(subject, ctx)
+        summary = None
+        votes: List[AgentVote] = []
+
+        for round_num in range(self.rounds):
+            round_ctx = dict(ctx)
+
+            # Inject prior round's summary into context for rounds > 0
+            if summary is not None:
+                round_ctx["prior_summary"] = summary
+
+            votes = await self._collect_votes(subject, round_ctx)
+
+            # Generate summary after collecting votes
+            if self.summarizer_fn is not None:
+                try:
+                    summary = await self._call_summarizer(votes, subject, round_ctx)
+                except Exception as e:
+                    logger.error(f"Summarizer failed in round {round_num + 1}: {e}")
+                    summary = None
+
+            # Only continue to next round if we have a summarizer
+            if self.summarizer_fn is None:
+                break
+
+            if round_num < self.rounds - 1:
+                logger.debug(
+                    f"Round {round_num + 1}/{self.rounds} complete, "
+                    f"continuing deliberation"
+                )
 
         if self.enable_caching:
             self._cache_votes(key, votes)
 
         result = self.consensus_engine.calculate_consensus(votes)
+        result.summary = summary
+        result.debate_rounds = self.rounds if self.rounds > 1 else result.debate_rounds
+
         logger.info(
             f"Consensus for '{subject[:40]}': {result.action} "
-            f"(confidence={result.confidence:.2f}, {len(votes)} votes)"
+            f"(confidence={result.confidence:.2f}, {len(votes)} votes, "
+            f"rounds={self.rounds})"
         )
+        return result
+
+    async def _call_summarizer(
+        self,
+        votes: List[AgentVote],
+        subject: str,
+        context: Dict[str, Any],
+    ) -> Optional[str]:
+        """Call the summarizer function, handling both sync and async."""
+        result = self.summarizer_fn(votes, subject, context)
+        if asyncio.iscoroutine(result):
+            return await result
         return result
 
     def evaluate_sync(

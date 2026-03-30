@@ -31,6 +31,7 @@ from khonliang.errors import (
     LLMTimeoutError,
     LLMUnavailableError,
 )
+from khonliang.gateway.blackboard import Blackboard
 from khonliang.health import ModelHealthTracker
 from khonliang.personalities import PersonalityConfig, PersonalityRegistry
 from khonliang.pool import ModelPool
@@ -45,6 +46,8 @@ __all__ = [
     # Role layer
     "BaseRole",
     "BaseRouter",
+    # Gateway
+    "Blackboard",
     # Personalities
     "PersonalityConfig",
     "PersonalityRegistry",

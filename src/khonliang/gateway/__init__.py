@@ -1,3 +1,4 @@
+from khonliang.gateway.blackboard import Blackboard
 from khonliang.gateway.gateway import AgentGateway
 from khonliang.gateway.messages import AgentMessage, GatewayMetrics
 from khonliang.gateway.observer import BaseObserver, CallbackObserver, LogObserver, WebhookObserver
@@ -11,6 +12,7 @@ from khonliang.gateway.sessions import (
 __all__ = [
     "AgentGateway",
     "AgentMessage",
+    "Blackboard",
     "GatewayMetrics",
     "sessions_list",
     "sessions_history",

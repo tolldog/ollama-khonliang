@@ -46,6 +46,7 @@ class BaseRole(ABC):
         system_prompt: Optional[str] = None,
         prompts_dir: Optional[Path] = None,
         max_context_tokens: Optional[int] = None,
+        board: Optional[Any] = None,
     ):
         """
         Args:
@@ -58,12 +59,15 @@ class BaseRole(ABC):
                 truncated (not compressed). Uses chars/4 heuristic for
                 token estimation. None or 0 means no budget enforcement.
                 LLM-based compression is a future enhancement.
+            board: Optional Blackboard instance for shared agent context.
+                When set, build_context() appends board entries automatically.
         """
         self.role = role
         self._model_pool = model_pool
         self._prompts_dir = prompts_dir
         self._system_prompt = system_prompt
         self.max_context_tokens = max_context_tokens
+        self.board = board
 
     @property
     def client(self) -> OllamaClient:
@@ -93,9 +97,18 @@ class BaseRole(ABC):
         Override this to inject live data (CRM records, DB state, API responses)
         relevant to your domain before the model call.
 
-        Returns empty string by default.
+        When a board (Blackboard) is attached, its entries are appended
+        automatically. Subclasses that override this should call
+        super().build_context() to preserve board integration.
+
+        Returns empty string by default (plus board context if set).
         """
-        return ""
+        parts = []
+        if self.board is not None:
+            board_ctx = self.board.build_context()
+            if board_ctx:
+                parts.append(board_ctx)
+        return "\n".join(parts)
 
     def _get_context(self, message: str, context: Optional[Dict[str, Any]] = None) -> str:
         """
