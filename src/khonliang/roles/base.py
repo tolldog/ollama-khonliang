@@ -45,11 +45,24 @@ class BaseRole(ABC):
         model_pool: ModelPool,
         system_prompt: Optional[str] = None,
         prompts_dir: Optional[Path] = None,
+        max_context_tokens: Optional[int] = None,
     ):
+        """
+        Args:
+            role: String name identifying this role
+            model_pool: ModelPool instance mapping roles to Ollama models
+            system_prompt: Optional system prompt for this role
+            prompts_dir: Optional directory to load system prompts from files
+            max_context_tokens: Optional token budget for context. When
+                build_context() output exceeds this, older content is
+                truncated. Uses chars/4 heuristic for token estimation.
+                None means no budget enforcement.
+        """
         self.role = role
         self._model_pool = model_pool
         self._prompts_dir = prompts_dir
         self._system_prompt = system_prompt
+        self.max_context_tokens = max_context_tokens
 
     @property
     def client(self) -> OllamaClient:
@@ -80,6 +93,34 @@ class BaseRole(ABC):
         Returns empty string by default.
         """
         return ""
+
+    def enforce_budget(self, context: str) -> str:
+        """
+        Truncate context to fit within the token budget.
+
+        Uses chars/4 heuristic for token estimation. Keeps the most
+        recent content, truncates from the beginning.
+
+        Returns context unchanged if no budget is set or context fits.
+        """
+        if self.max_context_tokens is None:
+            return context
+
+        # Heuristic: ~4 chars per token
+        max_chars = self.max_context_tokens * 4
+
+        if len(context) <= max_chars:
+            return context
+
+        # Truncate from the beginning, keep the most recent content
+        truncated = context[-max_chars:]
+
+        # Try to break at a newline to avoid mid-sentence truncation
+        first_newline = truncated.find("\n")
+        if first_newline > 0 and first_newline < len(truncated) // 4:
+            truncated = truncated[first_newline + 1:]
+
+        return f"[Context truncated to ~{self.max_context_tokens} tokens]\n{truncated}"
 
     @abstractmethod
     async def handle(
