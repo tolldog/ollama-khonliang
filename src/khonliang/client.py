@@ -354,3 +354,49 @@ class OllamaClient:
             raise LLMUnavailableError(
                 f"Failed to connect to Ollama at {self.base_url}: {e}", model=""
             ) from e
+
+    async def check_running_models(self) -> List[Dict[str, Any]]:
+        """
+        Check which models are currently loaded in Ollama via /api/ps.
+
+        Returns list of loaded models with VRAM usage, expiry, and details.
+        Useful for GPU-constrained deployments to know what's in memory.
+        """
+        try:
+            session = await self._ensure_session()
+            async with session.get(f"{self.base_url}/api/ps") as response:
+                response.raise_for_status()
+                data = await response.json()
+                return data.get("models", [])
+        except aiohttp.ClientError:
+            return []
+
+    async def is_available_async(self) -> bool:
+        """Async health check — uses the existing aiohttp session."""
+        try:
+            session = await self._ensure_session()
+            async with session.get(
+                f"{self.base_url}/api/tags",
+                timeout=aiohttp.ClientTimeout(total=5),
+            ) as response:
+                return response.status == 200
+        except Exception:
+            return False
+
+    async def pull_model(self, model_name: str) -> bool:
+        """
+        Pull a model from the Ollama registry.
+
+        Blocks until the pull is complete. Useful for setup scripts.
+        Returns True if successful.
+        """
+        try:
+            session = await self._ensure_session()
+            async with session.post(
+                f"{self.base_url}/api/pull",
+                json={"name": model_name, "stream": False},
+                timeout=aiohttp.ClientTimeout(total=600),  # 10 min for large models
+            ) as response:
+                return response.status == 200
+        except Exception:
+            return False
