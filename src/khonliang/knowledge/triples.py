@@ -84,6 +84,9 @@ class TripleStore:
         store.add("user", "prefers", "conservative positions", confidence=0.9)
         triples = store.get("TSLA")
         context = store.build_context(subjects=["TSLA"])
+
+    .. todo:: Add unit tests for TripleStore — CRUD, confidence reinforcement,
+       decay, build_context limits, and concurrent access.
     """
 
     def __init__(
@@ -158,8 +161,17 @@ class TripleStore:
         predicate: Optional[str] = None,
         obj: Optional[str] = None,
         min_confidence: float = 0.0,
+        limit: Optional[int] = None,
     ) -> List[Triple]:
-        """Query triples by any combination of fields."""
+        """Query triples by any combination of fields.
+
+        Args:
+            subject: Filter by subject.
+            predicate: Filter by predicate.
+            obj: Filter by object.
+            min_confidence: Minimum confidence threshold.
+            limit: Maximum number of triples to return. None means no limit.
+        """
         conditions = []
         params: list = []
 
@@ -177,12 +189,13 @@ class TripleStore:
             params.append(min_confidence)
 
         where = " AND ".join(conditions) if conditions else "1=1"
+        limit_clause = f" LIMIT {int(limit)}" if limit is not None else ""
 
         conn = self._conn()
         try:
             rows = conn.execute(
                 f"SELECT * FROM triples WHERE {where} "  # nosec B608
-                "ORDER BY confidence DESC",
+                f"ORDER BY confidence DESC{limit_clause}",
                 params,
             ).fetchall()
 
@@ -232,12 +245,14 @@ class TripleStore:
         if subjects:
             for s in subjects:
                 all_triples.extend(
-                    self.get(subject=s, min_confidence=min_confidence)
+                    self.get(subject=s, min_confidence=min_confidence,
+                             limit=max_triples)
                 )
         elif predicates:
             for p in predicates:
                 all_triples.extend(
-                    self.get(predicate=p, min_confidence=min_confidence)
+                    self.get(predicate=p, min_confidence=min_confidence,
+                             limit=max_triples)
                 )
         else:
             all_triples = self.get(min_confidence=min_confidence)
@@ -264,8 +279,13 @@ class TripleStore:
         """
         Apply confidence decay to old triples.
 
-        Triples not accessed recently lose confidence. Those that
-        drop below a threshold get removed.
+        Triples not updated within ``max_age_days`` lose confidence
+        (scaled by their per-row ``decay_rate``). Those that drop
+        below 0.1 are removed.
+
+        Note: decay is based on ``updated_at``, which is refreshed on
+        add/reinforce. ``access_count`` tracks reads but does not
+        currently prevent decay.
 
         Returns number of triples removed.
         """
@@ -273,7 +293,7 @@ class TripleStore:
         cutoff = now - (max_age_days * 86400)
         conn = self._conn()
         try:
-            # Decay confidence based on age
+            # Decay confidence based on age since last update
             conn.execute(
                 "UPDATE triples SET confidence = confidence * (1 - decay_rate) "
                 "WHERE updated_at < ? AND decay_rate > 0",

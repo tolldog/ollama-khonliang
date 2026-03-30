@@ -55,8 +55,9 @@ class BaseRole(ABC):
             prompts_dir: Optional directory to load system prompts from files
             max_context_tokens: Optional token budget for context. When
                 build_context() output exceeds this, older content is
-                truncated. Uses chars/4 heuristic for token estimation.
-                None means no budget enforcement.
+                truncated (not compressed). Uses chars/4 heuristic for
+                token estimation. None or 0 means no budget enforcement.
+                LLM-based compression is a future enhancement.
         """
         self.role = role
         self._model_pool = model_pool
@@ -94,6 +95,17 @@ class BaseRole(ABC):
         """
         return ""
 
+    def _get_context(self, message: str, context: Optional[Dict[str, Any]] = None) -> str:
+        """
+        Build context and enforce the token budget.
+
+        Convenience wrapper that calls build_context() then enforce_budget().
+        Subclasses should call this in handle() instead of calling
+        build_context() and enforce_budget() separately.
+        """
+        raw = self.build_context(message, context)
+        return self.enforce_budget(raw)
+
     def enforce_budget(self, context: str) -> str:
         """
         Truncate context to fit within the token budget.
@@ -103,7 +115,7 @@ class BaseRole(ABC):
 
         Returns context unchanged if no budget is set or context fits.
         """
-        if self.max_context_tokens is None:
+        if not self.max_context_tokens:
             return context
 
         # Heuristic: ~4 chars per token

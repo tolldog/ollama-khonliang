@@ -137,7 +137,9 @@ class HeuristicPool:
 
         Args:
             action: What was done (e.g. "approve", "buy", "escalate")
-            result: "success" or "failure"
+            result: Outcome — must be "success" or "failure". Any other
+                value is normalized: truthy/positive strings map to
+                "success", everything else maps to "failure".
             context: Conditions when the action was taken
             details: Outcome details (e.g. metrics, scores)
             source: Which agent recorded this
@@ -145,6 +147,10 @@ class HeuristicPool:
         Returns:
             Outcome ID
         """
+        # Normalize result to success/failure
+        _success_values = {"success", "ok", "true", "yes", "1", "pass", "passed"}
+        normalized = "success" if result.lower().strip() in _success_values else "failure"
+
         conn = self._conn()
         try:
             cur = conn.execute(
@@ -153,7 +159,7 @@ class HeuristicPool:
                 (
                     action,
                     json.dumps(context) if context else None,
-                    result,
+                    normalized,
                     json.dumps(details) if details else None,
                     source,
                     time.time(),
@@ -288,11 +294,28 @@ class HeuristicPool:
 
         try:
             rules = self.extractor(outcome_dicts)
+
+            # Validate that extractor returned an iterable of strings
+            if not hasattr(rules, "__iter__"):
+                logger.warning(
+                    "LLM extractor returned non-iterable %s, expected list of strings",
+                    type(rules).__name__,
+                )
+                return []
+
             heuristics = []
             for rule in rules:
                 if isinstance(rule, str):
-                    h = Heuristic(rule=rule, confidence=0.7, source="llm_extracted")
-                    self.add_heuristic(rule=rule, confidence=0.7, source="llm_extracted")
+                    h = Heuristic(
+                        rule=rule,
+                        confidence=min_confidence,
+                        source="llm_extracted",
+                    )
+                    self.add_heuristic(
+                        rule=rule,
+                        confidence=min_confidence,
+                        source="llm_extracted",
+                    )
                     heuristics.append(h)
             return heuristics
         except Exception as e:
