@@ -33,6 +33,9 @@ class DebateConfig:
     max_rounds: int = 2
     challenge_timeout: float = 30.0
     enabled: bool = True
+    # Assigned-stance debate: agents argue assigned positions
+    assigned_stances: bool = False
+    stance_labels: Tuple[str, str] = ("advocate", "skeptic")
 
 
 class DebateOrchestrator:
@@ -118,8 +121,28 @@ class DebateOrchestrator:
         self,
         challenger: AgentVote,
         target: AgentVote,
+        challenger_stance: str = "",
+        target_stance: str = "",
     ) -> str:
-        """Build a challenge text from one agent to another."""
+        """
+        Build a challenge text from one agent to another.
+
+        When assigned_stances is enabled, agents are told to argue from
+        a specific position regardless of their natural vote.
+        """
+        if challenger_stance and target_stance:
+            # Assigned-stance mode: tell the target to argue their assigned position
+            return (
+                f"You are assigned the role of {target_stance}. "
+                f"Argue this position thoroughly, even if it differs from your "
+                f"initial assessment.\n\n"
+                f"The {challenger_stance} argues: "
+                f'"{challenger.reasoning}"\n\n'
+                f"As the {target_stance}, counter this argument. "
+                f"What are the strongest points against their position?"
+            )
+
+        # Default: natural disagreement
         return (
             f"You voted {target.action} with {target.confidence:.0%} confidence, "
             f'saying: "{target.reasoning}". '
@@ -167,9 +190,28 @@ class DebateOrchestrator:
         updated_votes = list(votes)
         rounds_completed = 0
 
+        # Determine stance assignments
+        stance_a = ""
+        stance_b = ""
+        if self.config.assigned_stances:
+            if len(self.config.stance_labels) != 2:
+                raise ValueError(
+                    f"stance_labels must have exactly 2 elements, "
+                    f"got {len(self.config.stance_labels)}: {self.config.stance_labels}"
+                )
+            stance_a, stance_b = self.config.stance_labels
+            logger.info(
+                f"Assigned stances: {vote_a.agent_id}={stance_a}, "
+                f"{vote_b.agent_id}={stance_b}"
+            )
+
         for round_num in range(1, self.config.max_rounds + 1):
             # A challenges B
-            challenge_text = self.build_challenge(vote_a, vote_b)
+            challenge_text = self.build_challenge(
+                vote_a, vote_b,
+                challenger_stance=stance_a,
+                target_stance=stance_b,
+            )
             response_b = await self._send_challenge(
                 challenger_id=vote_a.agent_id,
                 target_id=vote_b.agent_id,
@@ -184,7 +226,11 @@ class DebateOrchestrator:
                 self._update_vote_in_list(updated_votes, vote_b)
 
             # B challenges A
-            challenge_text = self.build_challenge(vote_b, vote_a)
+            challenge_text = self.build_challenge(
+                vote_b, vote_a,
+                challenger_stance=stance_b,
+                target_stance=stance_a,
+            )
             response_a = await self._send_challenge(
                 challenger_id=vote_b.agent_id,
                 target_id=vote_a.agent_id,

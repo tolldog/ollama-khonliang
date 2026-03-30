@@ -6,7 +6,7 @@ A VETO from any agent blocks the decision regardless of other votes.
 """
 
 import logging
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from khonliang.consensus.models import AgentVote, ConsensusResult
 
@@ -31,10 +31,21 @@ class ConsensusEngine:
         agent_weights: Optional[Dict[str, float]] = None,
         veto_blocks: bool = True,
         min_confidence: float = 0.0,
+        judge_fn: Optional[Callable[[List[AgentVote]], Optional[AgentVote]]] = None,
     ):
+        """
+        Args:
+            agent_weights: Per-agent weight overrides
+            veto_blocks: If True, VETO blocks consensus
+            min_confidence: Minimum confidence threshold
+            judge_fn: Optional sync/async function that reviews votes after
+                      aggregation. Signature: (votes) -> Optional[AgentVote].
+                      Returns None to accept consensus, or an AgentVote to override.
+        """
         self.agent_weights = agent_weights or {}
         self.veto_blocks = veto_blocks
         self.min_confidence = min_confidence
+        self.judge_fn = judge_fn
 
     def _effective_weight(self, vote: AgentVote) -> float:
         return self.agent_weights.get(vote.agent_id, vote.weight)
@@ -83,13 +94,68 @@ class ConsensusEngine:
         winner = max(normalised, key=normalised.get)
         confidence = normalised[winner]
 
-        return ConsensusResult(
+        result = ConsensusResult(
             action=winner,
             confidence=confidence,
             votes=votes,
             scores=normalised,
             reason=self._build_reason(votes, winner, normalised),
         )
+
+        # Judge step: optional review of the consensus
+        if self.judge_fn is not None:
+            result = self._apply_judge(result, votes)
+
+        return result
+
+    def _apply_judge(
+        self, result: ConsensusResult, votes: List[AgentVote]
+    ) -> ConsensusResult:
+        """Run the judge function to optionally override consensus."""
+        try:
+            import asyncio
+            import inspect
+
+            if inspect.iscoroutinefunction(self.judge_fn):
+                try:
+                    _ = asyncio.get_running_loop()  # raises RuntimeError if no loop
+                    # Already inside a running event loop — asyncio.run() would
+                    # raise RuntimeError, so skip the judge gracefully.
+                    logger.warning(
+                        "Async judge_fn skipped: calculate_consensus() was called "
+                        "from within a running event loop. Use a sync judge_fn, or "
+                        "invoke calculate_consensus() outside an async context."
+                    )
+                    return result
+                except RuntimeError:
+                    pass  # No running loop — safe to call asyncio.run().
+                override = asyncio.run(self.judge_fn(votes))
+            else:
+                override = self.judge_fn(votes)
+
+            if override is not None and isinstance(override, AgentVote):
+                logger.info(
+                    f"Judge overrode consensus: "
+                    f"{result.action} -> {override.action} "
+                    f"({override.reasoning[:60]})"
+                )
+                return ConsensusResult(
+                    action=override.action,
+                    confidence=override.confidence,
+                    votes=votes + [override],
+                    scores={},
+                    reason=(
+                        f"Judge override: {override.reasoning}. "
+                        f"Original: {result.reason}"
+                    ),
+                    judge_overridden=True,
+                    original_action=result.action,
+                    original_scores=result.scores,
+                )
+        except Exception:
+            logger.exception("Judge function failed")
+
+        return result
 
     def _build_reason(
         self,
