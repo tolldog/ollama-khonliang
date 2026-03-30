@@ -214,8 +214,17 @@ class OllamaClient:
         temperature: float = DEFAULT_TEMPERATURE,
         max_tokens: int = MAX_TOKENS,
         model: Optional[str] = None,
+        constrained: bool = False,
     ) -> Dict:
-        """Generate structured JSON output, handling common LLM formatting issues."""
+        """
+        Generate structured JSON output.
+
+        Args:
+            constrained: If True, uses Ollama's native JSON mode
+                (format="json") which constrains token generation to
+                produce only valid JSON. Falls back to cleanup parsing
+                if the result still needs fixing.
+        """
         json_system = (
             f"{system}\n\nRespond with valid JSON only. No markdown, no explanations."
             if system
@@ -223,6 +232,29 @@ class OllamaClient:
         )
         if schema:
             json_system += f"\n\nFollow this JSON schema:\n{json.dumps(schema, indent=2)}"
+
+        if constrained:
+            # Use Ollama's native JSON mode
+            model_name = model or self.model
+            model_timeout = self._get_timeout(model_name)
+            payload: Dict[str, Any] = {
+                "model": model_name,
+                "prompt": prompt,
+                "system": json_system,
+                "stream": False,
+                "format": "json",
+                "options": {
+                    "temperature": temperature,
+                    "num_predict": max_tokens,
+                },
+            }
+            try:
+                result = await self._do_generate(
+                    payload, model_name, model_timeout
+                )
+                return self._parse_json(result.text)
+            except Exception as e:
+                logger.debug(f"Constrained JSON mode failed, falling back: {e}")
 
         response = await self.generate(
             prompt=prompt, system=json_system, temperature=temperature,
