@@ -6,20 +6,22 @@ Provides validation, default weights, and blocking action identification.
 
 Usage:
     # Define domain-specific actions
-    class ReviewActions(ActionVocabulary):
-        actions = ["approve", "reject", "defer", "veto"]
-        blocking = {"veto"}
-        default_weights = {"approve": 1.0, "reject": 1.0, "defer": 0.5}
+    vocab = ActionVocabulary(
+        actions=["approve", "reject", "defer", "veto"],
+        blocking={"veto"},
+        default_weights={"approve": 1.0, "reject": 1.0, "defer": 0.5},
+    )
 
-    # Use with consensus
-    engine = ConsensusEngine(vocabulary=ReviewActions())
-
-    # Validate votes
-    vocab = ReviewActions()
+    # Validate and normalize votes
     assert vocab.is_valid("approve")
     assert vocab.is_blocking("veto")
+    normalized = vocab.validate_vote("Approve")  # -> "approve"
 
-Backward compatible: strings still work without a vocabulary.
+    # Use built-in vocabularies
+    from khonliang.consensus.vocabulary import DEFAULT_VOCABULARY, BINARY_VOCABULARY
+
+Note: ConsensusEngine integration is planned but not yet implemented.
+Standalone validation and weight lookup work today.
 """
 
 from dataclasses import dataclass, field

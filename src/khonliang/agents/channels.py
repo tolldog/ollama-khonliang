@@ -89,7 +89,8 @@ class ChannelManager:
 
     def __init__(self):
         self._channels: Dict[str, Channel] = {}
-        self._handlers: Dict[str, List[Callable]] = {}  # agent_id -> handlers
+        # Key: (agent_id, channel_name) so handlers are channel-specific
+        self._handlers: Dict[tuple, List[Callable]] = {}
 
     def create_channel(
         self,
@@ -124,7 +125,8 @@ class ChannelManager:
             return False
         channel.subscribers.add(agent_id)
         if handler:
-            self._handlers.setdefault(agent_id, []).append(handler)
+            key = (agent_id, channel_name)
+            self._handlers.setdefault(key, []).append(handler)
         return True
 
     def unsubscribe(self, channel_name: str, agent_id: str) -> bool:
@@ -162,18 +164,25 @@ class ChannelManager:
         if len(channel.history) > channel.max_history:
             channel.history = channel.history[-channel.max_history:]
 
-        # Notify subscribers
+        # Notify subscribers (count unique subscribers, not handler invocations)
         notified = 0
         for agent_id in channel.subscribers:
-            for handler in self._handlers.get(agent_id, []):
+            key = (agent_id, channel_name)
+            handlers = self._handlers.get(key, [])
+            if not handlers:
+                continue
+            agent_notified = False
+            for handler in handlers:
                 try:
                     handler(message)
-                    notified += 1
+                    agent_notified = True
                 except Exception as e:
                     logger.warning(
                         f"Handler error for {agent_id} on "
                         f"{channel_name}: {e}"
                     )
+            if agent_notified:
+                notified += 1
 
         return notified
 

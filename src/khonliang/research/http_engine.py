@@ -71,6 +71,11 @@ class HttpEngine(BaseEngine):
         self._session = requests.Session()
         self._session.headers.update(self._headers)
 
+    def stop(self) -> None:
+        """Shutdown the thread pool and close the HTTP session."""
+        super().stop()
+        self._session.close()
+
     async def execute(
         self, query: str, **kwargs: Any
     ) -> List[EngineResult]:
@@ -99,6 +104,8 @@ class HttpEngine(BaseEngine):
             ))
 
         return results
+
+    # TODO: Add tests for HttpEngine (out of scope for this PR).
 
     def _post(self, payload: Dict) -> Optional[Dict]:
         """Synchronous POST to the service."""

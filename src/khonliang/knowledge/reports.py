@@ -58,7 +58,8 @@ class ReportBuilder:
                 sections.append(f"- {scope}: {count}")
             sections.append("")
 
-        # Recent derived
+        # Recent derived — get_by_tier + in-memory sort is acceptable for
+        # typical knowledge store sizes (hundreds to low-thousands of entries).
         derived = self.store.get_by_tier(Tier.DERIVED)
         if derived:
             derived.sort(key=lambda e: e.updated_at, reverse=True)
@@ -116,6 +117,8 @@ class ReportBuilder:
         if extra_context:
             sections.append("")
             sections.append(extra_context)
+
+        # TODO: Add tests for ReportBuilder (out of scope for this PR).
 
         return "\n".join(sections)
 

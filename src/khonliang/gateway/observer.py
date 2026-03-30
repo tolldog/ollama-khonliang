@@ -14,6 +14,7 @@ Usage:
 """
 
 import logging
+import threading
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, Optional, Set
 
@@ -51,7 +52,7 @@ class BaseObserver(ABC):
                 return False
         if self.channels:
             channel = event.get("channel", "")
-            if channel and channel not in self.channels:
+            if not channel or channel not in self.channels:
                 return False
         if self.agents:
             sender = event.get("sender", event.get("from_agent_id", ""))
@@ -120,6 +121,14 @@ class WebhookObserver(BaseObserver):
         self.timeout = timeout
 
     def on_event(self, event: Dict[str, Any]) -> None:
+        # Fire-and-forget: run the POST in a daemon thread so we don't
+        # block the gateway's notify loop.
+        thread = threading.Thread(
+            target=self._send, args=(event,), daemon=True
+        )
+        thread.start()
+
+    def _send(self, event: Dict[str, Any]) -> None:
         try:
             requests.post(
                 self.url,
