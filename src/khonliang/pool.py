@@ -64,9 +64,10 @@ class ModelPool:
                 based on call frequency (hot/warm/cold classification)
             adaptive_config: Override adaptive keep-alive thresholds.
                 See DEFAULT_ADAPTIVE_CONFIG for keys.
-            on_call: Optional callback invoked after each get_client() call
+            on_call: Optional callback invoked after each generate() call
                 with (role: str, duration_ms: float). Useful for external
-                monitoring.
+                monitoring. Consumers should call record_call() after their
+                generate() call to trigger this callback.
         """
         self._map = {str(k): v for k, v in role_model_map.items()}
         self._clients: Dict[str, OllamaClient] = {}
@@ -80,11 +81,21 @@ class ModelPool:
         # Adaptive keep-alive: track call timestamps per model
         self._call_timestamps: Dict[str, Deque[float]] = {}
 
+        # Per-role resolved keep_alive value (static or adaptive)
+        self._resolved_keep_alive: Dict[str, Optional[str]] = {}
+
         # Usage metrics: per-role deque of (timestamp, duration_ms)
         self._usage: Dict[str, Deque[Tuple[float, float]]] = {}
 
     def get_client(self, role) -> OllamaClient:
-        """Get OllamaClient for the given role. Creates on first access."""
+        """
+        Get OllamaClient for the given role. Creates on first access.
+
+        The per-role keep_alive value is resolved and stored separately
+        so that shared clients (multiple roles using the same model) are
+        not mutated. Use get_keep_alive(role) to retrieve the resolved
+        value and pass it to generate(keep_alive=...).
+        """
         role_str = str(role)
         model = self._map.get(role_str)
         if model is None:
@@ -97,12 +108,11 @@ class ModelPool:
                 base_url=self._base_url,
                 model_timeouts=self._model_timeouts,
             )
-            # Set static keep_alive from per-role config
-            if role_str in self._keep_alive:
-                client.default_keep_alive = self._keep_alive[role_str]
             self._clients[model] = client
 
-        client = self._clients[model]
+        # Always resolve per-role keep_alive (static config may change)
+        if role_str in self._keep_alive:
+            self._resolved_keep_alive[role_str] = self._keep_alive[role_str]
 
         # Track call timestamp for adaptive keep-alive
         now = time.time()
@@ -110,18 +120,30 @@ class ModelPool:
             self._call_timestamps[model] = deque(maxlen=1000)
         self._call_timestamps[model].append(now)
 
-        # Apply adaptive keep-alive if enabled
+        # Resolve adaptive keep-alive per-role without mutating shared client
         if self._adaptive_keep_alive:
             temp = self.get_model_temperature(role_str)
             cfg = self._adaptive_config
             if temp == "hot":
-                client.default_keep_alive = cfg["hot_keep_alive"]
+                self._resolved_keep_alive[role_str] = cfg["hot_keep_alive"]
             elif temp == "warm":
-                client.default_keep_alive = cfg["warm_keep_alive"]
+                self._resolved_keep_alive[role_str] = cfg["warm_keep_alive"]
             else:
-                client.default_keep_alive = cfg["cold_keep_alive"]
+                self._resolved_keep_alive[role_str] = cfg["cold_keep_alive"]
 
-        return client
+        return self._clients[model]
+
+    def get_keep_alive(self, role) -> Optional[str]:
+        """
+        Return the resolved keep_alive value for a role.
+
+        This accounts for both static per-role overrides and adaptive
+        temperature-based adjustments. Pass the result to
+        client.generate(keep_alive=...) instead of relying on
+        client.default_keep_alive, which is shared across roles that
+        use the same model.
+        """
+        return self._resolved_keep_alive.get(str(role))
 
     def get_model_name(self, role) -> Optional[str]:
         """Return the model name configured for a role, or None."""
@@ -153,6 +175,11 @@ class ModelPool:
     def record_call(self, role: str, duration_ms: float) -> None:
         """
         Record a completed call for usage metrics tracking.
+
+        Consumers should call this after each generate() invocation to
+        feed the on_call callback and usage statistics. It is not called
+        automatically by get_client(); the caller is responsible for
+        timing the generate() call and reporting the duration here.
 
         Args:
             role: The role that made the call

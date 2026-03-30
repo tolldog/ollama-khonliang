@@ -105,7 +105,16 @@ class AgentTeam:
             cached = self._get_cached(key)
             if cached is not None:
                 logger.debug(f"Using cached votes for '{key[:40]}'")
-                return self.consensus_engine.calculate_consensus(cached)
+                result = self.consensus_engine.calculate_consensus(cached)
+                # Run summarizer on cached votes too
+                if self.summarizer_fn is not None:
+                    try:
+                        result.summary = await self._call_summarizer(
+                            cached, subject, ctx
+                        )
+                    except Exception as e:
+                        logger.debug(f"Summarizer failed on cached: {e}")
+                return result
 
         summary = None
         votes: List[AgentVote] = []
@@ -142,7 +151,9 @@ class AgentTeam:
 
         result = self.consensus_engine.calculate_consensus(votes)
         result.summary = summary
-        result.debate_rounds = self.rounds if self.rounds > 1 else result.debate_rounds
+        # Track actual rounds completed (loop runs 0..rounds-1)
+        actual_rounds = min(round_num + 1, self.rounds) if self.rounds > 1 else 0
+        result.debate_rounds = actual_rounds
 
         logger.info(
             f"Consensus for '{subject[:40]}': {result.action} "
@@ -158,10 +169,11 @@ class AgentTeam:
         context: Dict[str, Any],
     ) -> Optional[str]:
         """Call the summarizer function, handling both sync and async."""
-        result = self.summarizer_fn(votes, subject, context)
-        if asyncio.iscoroutine(result):
-            return await result
-        return result
+        import inspect
+
+        if inspect.iscoroutinefunction(self.summarizer_fn):
+            return await self.summarizer_fn(votes, subject, context)
+        return self.summarizer_fn(votes, subject, context)
 
     def evaluate_sync(
         self,

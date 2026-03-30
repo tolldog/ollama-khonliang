@@ -171,19 +171,17 @@ class Blackboard:
         for section in target_sections:
             entries = self._sections.get(section, {})
             section_lines: List[str] = []
-            expired_keys = []
+
+            # Filter expired entries first so they don't consume max_entries slots
+            expired_keys = [k for k, e in entries.items() if e.is_expired(now)]
+            for k in expired_keys:
+                del entries[k]
 
             for key, entry in entries.items():
-                if entry.is_expired(now):
-                    expired_keys.append(key)
-                    continue
                 if count >= max_entries:
                     break
                 section_lines.append(f"  [{key}] ({entry.agent_id}): {entry.content}")
                 count += 1
-
-            for k in expired_keys:
-                del entries[k]
 
             if section_lines:
                 lines.append(f"[{section}]")
