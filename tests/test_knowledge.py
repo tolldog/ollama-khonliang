@@ -1,4 +1,4 @@
-"""Tests for the three-tier knowledge store."""
+"""Tests for the three-tier knowledge store and semantic triple store."""
 
 import os
 import tempfile
@@ -8,6 +8,7 @@ from khonliang.knowledge.ingestion import IngestionPipeline
 from khonliang.knowledge.librarian import Librarian
 from khonliang.knowledge.reports import ReportBuilder
 from khonliang.knowledge.store import KnowledgeEntry, KnowledgeStore, Tier
+from khonliang.knowledge.triples import TripleStore
 
 
 def _temp_store():
@@ -357,5 +358,287 @@ def test_topic_report_scoped():
         assert "Thomas origins" in report
         # toll-scoped entry should not appear
         assert "Migration notes" not in report
+    finally:
+        os.unlink(path)
+
+
+# ------------------------------------------------------------------
+# TripleStore tests
+# ------------------------------------------------------------------
+
+
+def _temp_triple_store():
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    return TripleStore(path), path
+
+
+def test_triple_add_and_get():
+    store, path = _temp_triple_store()
+    try:
+        store.add("Roger Tolle", "born_in", "Wales", confidence=0.9, source="gedcom")
+        store.add("Roger Tolle", "born_year", "1642", confidence=0.95, source="gedcom")
+
+        triples = store.get(subject="Roger Tolle")
+        assert len(triples) == 2
+        subjects = {t.subject for t in triples}
+        assert subjects == {"Roger Tolle"}
+        preds = {t.predicate for t in triples}
+        assert "born_in" in preds
+        assert "born_year" in preds
+    finally:
+        os.unlink(path)
+
+
+def test_triple_dedup_reinforcement():
+    store, path = _temp_triple_store()
+    try:
+        store.add("TSLA", "correlates_with", "AMD", confidence=0.6)
+        store.add("TSLA", "correlates_with", "AMD", confidence=0.8)
+
+        triples = store.get(subject="TSLA", predicate="correlates_with")
+        assert len(triples) == 1
+        # confidence should be max of 0.6 and 0.8
+        assert triples[0].confidence == 0.8
+    finally:
+        os.unlink(path)
+
+
+def test_triple_dedup_keeps_lower_when_existing_higher():
+    store, path = _temp_triple_store()
+    try:
+        store.add("TSLA", "correlates_with", "AMD", confidence=0.9)
+        store.add("TSLA", "correlates_with", "AMD", confidence=0.5)
+
+        triples = store.get(subject="TSLA", predicate="correlates_with")
+        assert len(triples) == 1
+        # confidence stays at max (0.9)
+        assert triples[0].confidence == 0.9
+    finally:
+        os.unlink(path)
+
+
+def test_triple_get_by_predicate():
+    store, path = _temp_triple_store()
+    try:
+        store.add("Alice", "knows", "Bob")
+        store.add("Carol", "knows", "Dave")
+        store.add("Alice", "likes", "cats")
+
+        triples = store.get(predicate="knows")
+        assert len(triples) == 2
+
+        triples = store.get(predicate="likes")
+        assert len(triples) == 1
+        assert triples[0].subject == "Alice"
+    finally:
+        os.unlink(path)
+
+
+def test_triple_get_min_confidence_filter():
+    store, path = _temp_triple_store()
+    try:
+        store.add("A", "rel", "B", confidence=0.9)
+        store.add("A", "rel", "C", confidence=0.4)
+        store.add("A", "rel", "D", confidence=0.2)
+
+        triples = store.get(subject="A", min_confidence=0.5)
+        assert len(triples) == 1
+        assert triples[0].object == "B"
+    finally:
+        os.unlink(path)
+
+
+def test_triple_get_limit():
+    store, path = _temp_triple_store()
+    try:
+        for i in range(10):
+            store.add("subject", f"pred{i}", "object", confidence=float(i) / 10)
+
+        triples = store.get(subject="subject", limit=3)
+        assert len(triples) == 3
+        # Should return the highest-confidence triples
+        confidences = [t.confidence for t in triples]
+        assert confidences == sorted(confidences, reverse=True)
+    finally:
+        os.unlink(path)
+
+
+def test_triple_search():
+    store, path = _temp_triple_store()
+    try:
+        store.add("Roger Tolle", "born_in", "Wales")
+        store.add("Roger Tolle", "migrated_to", "Maryland")
+        store.add("Other Person", "born_in", "England")
+
+        results = store.search("Wales")
+        assert len(results) == 1
+        assert results[0].object == "Wales"
+
+        results = store.search("Roger")
+        assert len(results) == 2
+    finally:
+        os.unlink(path)
+
+
+def test_triple_build_context_all():
+    store, path = _temp_triple_store()
+    try:
+        store.add("Alice", "likes", "cats", confidence=0.9)
+        store.add("Bob", "dislikes", "dogs", confidence=0.7)
+
+        ctx = store.build_context()
+        assert "Alice likes cats" in ctx
+        assert "Bob dislikes dogs" in ctx
+        # Confidence formatted as percentage
+        assert "90%" in ctx
+    finally:
+        os.unlink(path)
+
+
+def test_triple_build_context_subjects_filter():
+    store, path = _temp_triple_store()
+    try:
+        store.add("Alice", "likes", "cats", confidence=0.9)
+        store.add("Bob", "likes", "dogs", confidence=0.8)
+        store.add("Carol", "likes", "fish", confidence=0.7)
+
+        ctx = store.build_context(subjects=["Alice", "Bob"])
+        assert "Alice" in ctx
+        assert "Bob" in ctx
+        assert "Carol" not in ctx
+    finally:
+        os.unlink(path)
+
+
+def test_triple_build_context_predicates_filter():
+    store, path = _temp_triple_store()
+    try:
+        store.add("Alice", "likes", "cats", confidence=0.9)
+        store.add("Bob", "dislikes", "cats", confidence=0.8)
+        store.add("Carol", "owns", "cats", confidence=0.7)
+
+        ctx = store.build_context(predicates=["likes", "owns"])
+        assert "likes" in ctx
+        assert "owns" in ctx
+        assert "dislikes" not in ctx
+    finally:
+        os.unlink(path)
+
+
+def test_triple_build_context_max_triples():
+    store, path = _temp_triple_store()
+    try:
+        for i in range(10):
+            store.add("subject", f"pred{i}", "object", confidence=float(i + 1) / 10)
+
+        ctx = store.build_context(max_triples=3)
+        lines = [ln for ln in ctx.splitlines() if ln.strip()]
+        assert len(lines) == 3
+    finally:
+        os.unlink(path)
+
+
+def test_triple_build_context_min_confidence():
+    store, path = _temp_triple_store()
+    try:
+        store.add("A", "rel", "B", confidence=0.9)
+        store.add("A", "rel", "C", confidence=0.2)
+
+        # min_confidence=0.5 should exclude the 0.2 triple
+        ctx = store.build_context(min_confidence=0.5)
+        assert "B" in ctx
+        assert "C" not in ctx
+    finally:
+        os.unlink(path)
+
+
+def test_triple_build_context_ordered_by_confidence():
+    store, path = _temp_triple_store()
+    try:
+        store.add("A", "rel", "low", confidence=0.3)
+        store.add("A", "rel", "high", confidence=0.9)
+        store.add("A", "rel", "mid", confidence=0.6)
+
+        ctx = store.build_context(subjects=["A"])
+        lines = ctx.splitlines()
+        # Highest-confidence triple should come first
+        assert "high" in lines[0]
+    finally:
+        os.unlink(path)
+
+
+def test_triple_apply_decay():
+    store, path = _temp_triple_store()
+    try:
+        store.add("A", "rel", "B", confidence=0.5)
+
+        # Force updated_at to be old by directly manipulating the DB
+        import sqlite3
+        conn = sqlite3.connect(path)
+        conn.row_factory = sqlite3.Row
+        old_time = time.time() - (200 * 86400)  # 200 days ago
+        conn.execute("UPDATE triples SET updated_at = ?", (old_time,))
+        conn.commit()
+        conn.close()
+
+        removed = store.apply_decay(max_age_days=90)
+        # Confidence was 0.5, after one decay step: 0.5 * (1 - 0.01) = 0.495
+        # Not below 0.1 threshold, so not removed yet
+        assert removed == 0
+
+        # A triple starting at 0.05 should be removed
+        store.add("X", "rel", "Y", confidence=0.05)
+        conn = sqlite3.connect(path)
+        conn.row_factory = sqlite3.Row
+        conn.execute(
+            "UPDATE triples SET updated_at = ? WHERE subject = 'X'", (old_time,)
+        )
+        conn.commit()
+        conn.close()
+
+        removed = store.apply_decay(max_age_days=90)
+        assert removed == 1
+        remaining = store.get(subject="X")
+        assert remaining == []
+    finally:
+        os.unlink(path)
+
+
+def test_triple_remove():
+    store, path = _temp_triple_store()
+    try:
+        store.add("A", "rel", "B")
+        store.add("A", "rel", "C")
+        store.add("A", "other", "D")
+
+        removed = store.remove("A", predicate="rel", obj="B")
+        assert removed == 1
+        remaining = store.get(subject="A")
+        assert len(remaining) == 2
+
+        removed = store.remove("A", predicate="rel")
+        assert removed == 1
+        remaining = store.get(subject="A")
+        assert len(remaining) == 1
+
+        removed = store.remove("A")
+        assert removed == 1
+        assert store.get(subject="A") == []
+    finally:
+        os.unlink(path)
+
+
+def test_triple_get_stats():
+    store, path = _temp_triple_store()
+    try:
+        store.add("Alice", "likes", "cats")
+        store.add("Alice", "owns", "dog")
+        store.add("Bob", "likes", "birds")
+
+        stats = store.get_stats()
+        assert stats["total_triples"] == 3
+        assert stats["unique_subjects"] == 2
+        assert stats["unique_predicates"] == 2
     finally:
         os.unlink(path)
