@@ -247,7 +247,7 @@ class MattermostBot:
 
     @property
     def is_connected(self) -> bool:
-        """True if connected or actively attempting to reconnect."""
+        """True if connected or set to auto-reconnect. Note: returns True before connect() is called since _reconnect defaults to True."""
         return self._connected or self._reconnect
 
     # --- Internal ---
