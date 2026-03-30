@@ -69,7 +69,7 @@ class AgentEnvelope:
         model_meta: Optional[ModelMeta] = None,
         correlation_id: str = "",
     ) -> "AgentEnvelope":
-        """Create a new envelope. Uses provided correlation_id or generates one."""
+        """Create a new envelope, auto-generating a correlation ID if none is provided."""
         return cls(
             from_role=from_role,
             from_agent_id=from_agent_id,
