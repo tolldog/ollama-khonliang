@@ -165,17 +165,23 @@ class Blackboard:
         """
         target_sections = sections or list(self._sections.keys())
         now = time.time()
+
+        # First pass: purge expired entries from all target sections so
+        # entries that expire while rendering don't consume max_entries slots
+        # and are removed regardless of whether we hit the cap.
+        for section in target_sections:
+            entries = self._sections.get(section, {})
+            expired_keys = [k for k, e in entries.items() if e.is_expired(now)]
+            for k in expired_keys:
+                del entries[k]
+
+        # Second pass: render live entries up to max_entries
         lines: List[str] = []
         count = 0
 
         for section in target_sections:
             entries = self._sections.get(section, {})
             section_lines: List[str] = []
-
-            # Filter expired entries first so they don't consume max_entries slots
-            expired_keys = [k for k, e in entries.items() if e.is_expired(now)]
-            for k in expired_keys:
-                del entries[k]
 
             for key, entry in entries.items():
                 if count >= max_entries:
