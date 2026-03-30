@@ -2,10 +2,12 @@
 
 import asyncio
 import time
+from unittest.mock import MagicMock, patch
 
 from khonliang.research.base import BaseResearcher
 from khonliang.research.composite import CompositeResearcher
 from khonliang.research.engine import BaseEngine, EngineResult
+from khonliang.research.http_engine import HttpEngine
 from khonliang.research.models import ResearchResult, ResearchStatus, ResearchTask
 from khonliang.research.pool import ResearchPool
 from khonliang.research.trigger import ResearchTrigger
@@ -305,3 +307,123 @@ def test_composite_with_filter():
 
     assert "A: hello" in result.content
     assert "B: hello" not in result.content
+
+
+# ------------------------------------------------------------------
+# HttpEngine tests
+# ------------------------------------------------------------------
+
+
+def _make_http_engine(**kwargs):
+    return HttpEngine(
+        name="test_http",
+        base_url="http://localhost:9999",
+        **kwargs,
+    )
+
+
+def _mock_response(json_data, status_code=200):
+    resp = MagicMock()
+    resp.status_code = status_code
+    resp.json.return_value = json_data
+    resp.raise_for_status.return_value = None
+    return resp
+
+
+def test_http_engine_list_results():
+    """POST returns a list-wrapped results array."""
+    engine = _make_http_engine()
+    fake_resp = _mock_response({
+        "results": [
+            {"title": "Hit 1", "content": "body one", "url": "http://a.com", "score": 0.9},
+            {"title": "Hit 2", "content": "body two", "score": 0.7},
+        ]
+    })
+    with patch.object(engine._session, "post", return_value=fake_resp) as mock_post:
+        results = asyncio.run(engine.query("find something"))
+
+    mock_post.assert_called_once()
+    call_kwargs = mock_post.call_args
+    payload = call_kwargs[1]["json"] if "json" in call_kwargs[1] else call_kwargs[0][1]
+    assert payload["query"] == "find something"
+
+    assert len(results) == 2
+    assert results[0].title == "Hit 1"
+    assert results[0].content == "body one"
+    assert results[0].url == "http://a.com"
+    assert results[0].score == 0.9
+    assert results[1].title == "Hit 2"
+    assert results[1].score == 0.7
+
+
+def test_http_engine_single_object_response():
+    """POST returns results as a bare dict (not a list) — wrapped into one result."""
+    engine = _make_http_engine()
+    # The service returns {"results": {...}} instead of {"results": [{...}]}
+    fake_resp = _mock_response({"results": {"title": "Solo", "content": "only one"}})
+    with patch.object(engine._session, "post", return_value=fake_resp):
+        results = asyncio.run(engine.query("solo"))
+
+    assert len(results) == 1
+    assert results[0].title == "Solo"
+    assert results[0].content == "only one"
+
+
+def test_http_engine_kwargs_forwarded_as_options():
+    """Extra kwargs are sent as 'options' in the POST body."""
+    engine = _make_http_engine()
+    fake_resp = _mock_response({"results": []})
+    with patch.object(engine._session, "post", return_value=fake_resp) as mock_post:
+        asyncio.run(engine.query("q", limit=5, mode="fast"))
+
+    payload = mock_post.call_args[1]["json"]
+    assert payload.get("options") == {"limit": 5, "mode": "fast"}
+
+
+def test_http_engine_http_error_returns_empty():
+    """HTTP errors (non-2xx) are caught and return an empty list."""
+    import requests
+
+    engine = _make_http_engine()
+    resp = MagicMock()
+    resp.raise_for_status.side_effect = requests.HTTPError("503")
+    with patch.object(engine._session, "post", return_value=resp):
+        results = asyncio.run(engine.query("bad request"))
+
+    assert results == []
+
+
+def test_http_engine_network_error_returns_empty():
+    """Network errors (connection refused, timeout) return an empty list."""
+    import requests
+
+    engine = _make_http_engine()
+    with patch.object(engine._session, "post", side_effect=requests.ConnectionError("refused")):
+        results = asyncio.run(engine.query("conn error"))
+
+    assert results == []
+
+
+def test_http_engine_is_healthy_true():
+    engine = _make_http_engine()
+    fake_resp = MagicMock()
+    fake_resp.status_code = 200
+    with patch.object(engine._session, "get", return_value=fake_resp):
+        assert engine.is_healthy() is True
+
+
+def test_http_engine_is_healthy_false_on_error():
+    import requests
+
+    engine = _make_http_engine()
+    with patch.object(engine._session, "get", side_effect=requests.ConnectionError()):
+        assert engine.is_healthy() is False
+
+
+def test_http_engine_stop_closes_session():
+    """stop() shuts down thread pool and closes the HTTP session."""
+    engine = _make_http_engine()
+    engine.start()
+    with patch.object(engine._session, "close") as mock_close:
+        engine.stop()
+    mock_close.assert_called_once()
