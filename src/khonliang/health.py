@@ -9,7 +9,7 @@ a model that's consistently failing due to GPU contention or OOM.
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Dict
+from typing import Callable, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -41,11 +41,26 @@ class ModelHealthTracker:
         failure_threshold: int = 3,
         failure_window: float = 300.0,
         cooldown_duration: float = 60.0,
+        on_failure: Optional["Callable"] = None,
+        on_success: Optional["Callable"] = None,
+        on_cooldown: Optional["Callable"] = None,
     ):
+        """
+        Args:
+            failure_threshold: Failures before cooldown triggers
+            failure_window: Seconds to look back for failures
+            cooldown_duration: How long cooldown lasts
+            on_failure: Callback(model: str) on each failure
+            on_success: Callback(model: str) on each success
+            on_cooldown: Callback(model: str, duration: float) when cooldown starts
+        """
         self.failure_threshold = failure_threshold
         self.failure_window = failure_window
         self.cooldown_duration = cooldown_duration
         self._models: Dict[str, _ModelState] = {}
+        self._on_failure = on_failure
+        self._on_success = on_success
+        self._on_cooldown = on_cooldown
 
     def _get_state(self, model: str) -> _ModelState:
         if model not in self._models:
@@ -58,6 +73,12 @@ class ModelHealthTracker:
         state.failure_timestamps.append(now)
         state.total_failures += 1
 
+        if self._on_failure:
+            try:
+                self._on_failure(model)
+            except Exception as e:
+                logger.debug(f"Health callback error: {e}")
+
         cutoff = now - self.failure_window
         state.failure_timestamps = [t for t in state.failure_timestamps if t > cutoff]
 
@@ -68,8 +89,18 @@ class ModelHealthTracker:
                 f"after {len(state.failure_timestamps)} failures in "
                 f"{self.failure_window}s window"
             )
+            if self._on_cooldown:
+                try:
+                    self._on_cooldown(model, self.cooldown_duration)
+                except Exception as e:
+                    logger.debug(f"Health cooldown callback error: {e}")
 
     def record_success(self, model: str) -> None:
+        if self._on_success:
+            try:
+                self._on_success(model)
+            except Exception as e:
+                logger.debug(f"Health callback error: {e}")
         state = self._get_state(model)
         state.failure_timestamps.clear()
         state.total_successes += 1

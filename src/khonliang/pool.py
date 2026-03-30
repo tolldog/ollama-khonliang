@@ -34,10 +34,19 @@ class ModelPool:
         self,
         role_model_map: Dict,
         base_url: str = "http://localhost:11434",
+        model_timeouts: Optional[Dict[str, int]] = None,
     ):
+        """
+        Args:
+            role_model_map: Dict mapping role names to model names
+            base_url: Ollama server URL
+            model_timeouts: Optional per-model timeout overrides
+                e.g. {"deepseek-r1:32b": 300, "llama3.2:3b": 30}
+        """
         self._map = {str(k): v for k, v in role_model_map.items()}
         self._clients: Dict[str, OllamaClient] = {}
         self._base_url = base_url
+        self._model_timeouts = model_timeouts
 
     def get_client(self, role) -> OllamaClient:
         """Get OllamaClient for the given role. Creates on first access."""
@@ -47,7 +56,11 @@ class ModelPool:
 
         if model not in self._clients:
             logger.debug(f"Creating OllamaClient for {role} -> {model}")
-            self._clients[model] = OllamaClient(model=model, base_url=self._base_url)
+            self._clients[model] = OllamaClient(
+                model=model,
+                base_url=self._base_url,
+                model_timeouts=self._model_timeouts,
+            )
 
         return self._clients[model]
 
