@@ -303,20 +303,31 @@ class HeuristicPool:
                 )
                 return []
 
+            # LLM-extracted rules carry a fixed assumed confidence since the
+            # model does not return calibrated probabilities. Skip all rules
+            # when that assumed confidence would not meet the caller's threshold.
+            assumed_confidence = 0.7
+            if assumed_confidence < min_confidence:
+                return []
+
             heuristics = []
             for rule in rules:
-                if isinstance(rule, str):
-                    h = Heuristic(
-                        rule=rule,
-                        confidence=min_confidence,
-                        source="llm_extracted",
+                if not isinstance(rule, str):
+                    logger.warning(
+                        "Skipping non-string rule from LLM extractor: %r", rule
                     )
-                    self.add_heuristic(
-                        rule=rule,
-                        confidence=min_confidence,
-                        source="llm_extracted",
-                    )
-                    heuristics.append(h)
+                    continue
+                h = Heuristic(
+                    rule=rule,
+                    confidence=assumed_confidence,
+                    source="llm_extracted",
+                )
+                self.add_heuristic(
+                    rule=rule,
+                    confidence=assumed_confidence,
+                    source="llm_extracted",
+                )
+                heuristics.append(h)
             return heuristics
         except Exception as e:
             logger.warning(f"LLM heuristic extraction failed: {e}")

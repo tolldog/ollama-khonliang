@@ -84,9 +84,6 @@ class TripleStore:
         store.add("user", "prefers", "conservative positions", confidence=0.9)
         triples = store.get("TSLA")
         context = store.build_context(subjects=["TSLA"])
-
-    .. todo:: Add unit tests for TripleStore — CRUD, confidence reinforcement,
-       decay, build_context limits, and concurrent access.
     """
 
     def __init__(
@@ -239,41 +236,52 @@ class TripleStore:
 
         Much more token-efficient than full text — each triple is
         one line of "subject predicate object (confidence)".
+
+        Uses a single SQL query with ORDER BY confidence DESC LIMIT to
+        avoid loading the full table into memory.
         """
-        all_triples: List[Triple] = []
+        query = (
+            "SELECT id, subject, predicate, object, confidence "
+            "FROM triples WHERE confidence >= ?"
+        )
+        params: List[Any] = [min_confidence]
 
         if subjects:
-            for s in subjects:
-                all_triples.extend(
-                    self.get(subject=s, min_confidence=min_confidence,
-                             limit=max_triples)
-                )
+            placeholders = ",".join("?" for _ in subjects)
+            query += f" AND subject IN ({placeholders})"  # nosec B608 - only ? chars, values passed as params
+            params.extend(subjects)
         elif predicates:
-            for p in predicates:
-                all_triples.extend(
-                    self.get(predicate=p, min_confidence=min_confidence,
-                             limit=max_triples)
+            placeholders = ",".join("?" for _ in predicates)
+            query += f" AND predicate IN ({placeholders})"  # nosec B608 - only ? chars, values passed as params
+            params.extend(predicates)
+
+        query += " ORDER BY confidence DESC LIMIT ?"
+        params.append(max_triples)
+
+        conn = self._conn()
+        try:
+            rows = conn.execute(query, params).fetchall()
+
+            # Increment access_count only for the rows actually returned
+            triple_ids = [row["id"] for row in rows]
+            if triple_ids:
+                id_placeholders = ",".join("?" for _ in triple_ids)
+                conn.execute(
+                    "UPDATE triples SET access_count = access_count + 1 "
+                    f"WHERE id IN ({id_placeholders})",  # nosec B608 - placeholders from integer DB ids, values passed as params
+                    triple_ids,
                 )
-        else:
-            all_triples = self.get(min_confidence=min_confidence)
+                conn.commit()
 
-        # Deduplicate and sort by confidence
-        seen = set()
-        unique = []
-        for t in all_triples:
-            key = (t.subject, t.predicate, t.object)
-            if key not in seen:
-                seen.add(key)
-                unique.append(t)
-        unique.sort(key=lambda t: -t.confidence)
-
-        lines = []
-        for t in unique[:max_triples]:
-            lines.append(
-                f"{t.subject} {t.predicate} {t.object} ({t.confidence:.0%})"
-            )
-
-        return "\n".join(lines)
+            lines = []
+            for row in rows:
+                lines.append(
+                    f"{row['subject']} {row['predicate']} {row['object']}"
+                    f" ({row['confidence']:.0%})"
+                )
+            return "\n".join(lines)
+        finally:
+            conn.close()
 
     def apply_decay(self, max_age_days: float = 90) -> int:
         """
