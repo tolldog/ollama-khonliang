@@ -95,7 +95,7 @@ class QueryParser:
             "Respond with ONLY a JSON object containing the extracted fields."
         )
         lines.append("Only include fields clearly stated or implied.")
-        lines.append("Use null for fields not mentioned.")
+        lines.append("Omit fields not mentioned.")
 
         if self.examples:
             lines.append("")
@@ -116,9 +116,9 @@ class QueryParser:
         if self.client:
             try:
                 result = await self._parse_llm(message)
-                if result:
+                if result is not None:
                     return result
-            except Exception as e:
+            except (TimeoutError, ConnectionError, ValueError) as e:
                 logger.debug(f"LLM parse failed: {e}")
 
         if self.fallback:
@@ -127,8 +127,30 @@ class QueryParser:
         return {}
 
     async def _parse_llm(self, message: str) -> Optional[Dict[str, Any]]:
-        """Use the fast model to parse."""
+        """Use the fast model to parse.
+
+        Prefers generate_json() when available on the client for native
+        JSON-mode support; otherwise falls back to generate() + manual
+        extraction.
+        """
         prompt = f'User query: "{message}"\n\nExtract parameters:'
+
+        if hasattr(self.client, "generate_json"):
+            try:
+                data = await self.client.generate_json(
+                    prompt=prompt,
+                    system=self._system_prompt,
+                    model=self.model,
+                    temperature=0.1,
+                    max_tokens=200,
+                )
+                if isinstance(data, dict):
+                    result = {k: v for k, v in data.items() if v is not None}
+                    if self.schema:
+                        result = {k: v for k, v in result.items() if k in self.schema}
+                    return result
+            except Exception:
+                logger.debug("generate_json unavailable or failed, falling back to generate")
 
         response = await self.client.generate(
             prompt=prompt,
@@ -140,9 +162,11 @@ class QueryParser:
 
         return self._extract_json(response)
 
-    @staticmethod
-    def _extract_json(response: str) -> Optional[Dict[str, Any]]:
-        """Extract a JSON object from LLM response text."""
+    def _extract_json(self, response: str) -> Optional[Dict[str, Any]]:
+        """Extract a JSON object from LLM response text.
+
+        Strips null values and filters to schema keys when a schema is set.
+        """
         text = response.strip()
 
         start = text.find("{")
@@ -172,7 +196,10 @@ class QueryParser:
                 if depth == 0:
                     try:
                         data = json.loads(text[start: i + 1])
-                        return {k: v for k, v in data.items() if v is not None}
+                        result = {k: v for k, v in data.items() if v is not None}
+                        if self.schema:
+                            result = {k: v for k, v in result.items() if k in self.schema}
+                        return result
                     except json.JSONDecodeError:
                         return None
         return None
