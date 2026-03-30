@@ -95,12 +95,16 @@ class ConsensusResult:
     The aggregated result of all agent votes.
 
     Attributes:
-        action:        Final consensus action (majority or weighted winner)
-        confidence:    Overall confidence 0.0–1.0
-        votes:         All individual votes
-        scores:        Per-action weighted scores
-        reason:        Summary explanation
-        debate_rounds: Number of deliberation rounds (if any)
+        action:         Final consensus action (majority or weighted winner)
+        confidence:     Overall confidence 0.0–1.0
+        votes:          All individual votes
+        scores:         Per-action weighted scores; empty ({}) when judge_overridden
+                        is True (original scores are moved to original_scores)
+        reason:         Summary explanation
+        debate_rounds:  Number of deliberation rounds (if any)
+        judge_overridden: True when a judge_fn overrode the aggregated result
+        original_action: Pre-override action (set when judge_overridden is True)
+        original_scores: Pre-override weighted scores (set when judge_overridden is True)
     """
 
     action: str
@@ -110,6 +114,8 @@ class ConsensusResult:
     reason: Optional[str] = None
     debate_rounds: int = 0
     judge_overridden: bool = False
+    original_action: Optional[str] = None
+    original_scores: Optional[Dict[str, float]] = None
     created_at: datetime = field(default_factory=datetime.now)
 
     @property
@@ -125,6 +131,8 @@ class ConsensusResult:
             "reason": self.reason,
             "debate_rounds": self.debate_rounds,
             "judge_overridden": self.judge_overridden,
+            "original_action": self.original_action,
+            "original_scores": self.original_scores,
             "created_at": self.created_at.isoformat(),
         }
 
@@ -138,6 +146,8 @@ class ConsensusResult:
             reason=data.get("reason"),
             debate_rounds=data.get("debate_rounds", 0),
             judge_overridden=data.get("judge_overridden", False),
+            original_action=data.get("original_action"),
+            original_scores=data.get("original_scores"),
             created_at=(
                 datetime.fromisoformat(data["created_at"])
                 if "created_at" in data

@@ -118,16 +118,17 @@ class ConsensusEngine:
 
             if inspect.iscoroutinefunction(self.judge_fn):
                 try:
-                    loop = asyncio.get_running_loop()
-                except RuntimeError:
-                    loop = None
-
-                if loop is not None:
-                    raise RuntimeError(
-                        "judge_fn is async but called inside a running event loop. "
-                        "Use a sync judge_fn, or call calculate_consensus() from "
-                        "outside an async context."
+                    _ = asyncio.get_running_loop()  # raises RuntimeError if no loop
+                    # Already inside a running event loop — asyncio.run() would
+                    # raise RuntimeError, so skip the judge gracefully.
+                    logger.warning(
+                        "Async judge_fn skipped: calculate_consensus() was called "
+                        "from within a running event loop. Use a sync judge_fn, or "
+                        "invoke calculate_consensus() outside an async context."
                     )
+                    return result
+                except RuntimeError:
+                    pass  # No running loop — safe to call asyncio.run().
                 override = asyncio.run(self.judge_fn(votes))
             else:
                 override = self.judge_fn(votes)
@@ -138,21 +139,21 @@ class ConsensusEngine:
                     f"{result.action} -> {override.action} "
                     f"({override.reasoning[:60]})"
                 )
-                overridden_scores = dict(result.scores) if result.scores else {}
-                overridden_scores[override.action] = override.confidence
                 return ConsensusResult(
                     action=override.action,
                     confidence=override.confidence,
                     votes=votes + [override],
-                    scores=overridden_scores,
+                    scores={},
                     reason=(
                         f"Judge override: {override.reasoning}. "
                         f"Original: {result.reason}"
                     ),
                     judge_overridden=True,
+                    original_action=result.action,
+                    original_scores=result.scores,
                 )
-        except Exception as e:
-            logger.warning(f"Judge function failed: {e}", exc_info=True)
+        except Exception:
+            logger.exception("Judge function failed")
 
         return result
 
