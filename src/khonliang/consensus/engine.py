@@ -6,7 +6,7 @@ A VETO from any agent blocks the decision regardless of other votes.
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from khonliang.consensus.models import AgentVote, ConsensusResult
 
@@ -31,15 +31,15 @@ class ConsensusEngine:
         agent_weights: Optional[Dict[str, float]] = None,
         veto_blocks: bool = True,
         min_confidence: float = 0.0,
-        judge_fn: Optional[Any] = None,
+        judge_fn: Optional[Callable[[List[AgentVote]], Optional[AgentVote]]] = None,
     ):
         """
         Args:
             agent_weights: Per-agent weight overrides
             veto_blocks: If True, VETO blocks consensus
             min_confidence: Minimum confidence threshold
-            judge_fn: Optional async/sync function that reviews votes after
-                      aggregation. Signature: (votes, subject, context) -> Optional[AgentVote].
+            judge_fn: Optional sync/async function that reviews votes after
+                      aggregation. Signature: (votes) -> Optional[AgentVote].
                       Returns None to accept consensus, or an AgentVote to override.
         """
         self.agent_weights = agent_weights or {}
@@ -117,6 +117,17 @@ class ConsensusEngine:
             import inspect
 
             if inspect.iscoroutinefunction(self.judge_fn):
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    loop = None
+
+                if loop is not None:
+                    raise RuntimeError(
+                        "judge_fn is async but called inside a running event loop. "
+                        "Use a sync judge_fn, or call calculate_consensus() from "
+                        "outside an async context."
+                    )
                 override = asyncio.run(self.judge_fn(votes))
             else:
                 override = self.judge_fn(votes)
@@ -127,18 +138,21 @@ class ConsensusEngine:
                     f"{result.action} -> {override.action} "
                     f"({override.reasoning[:60]})"
                 )
+                overridden_scores = dict(result.scores) if result.scores else {}
+                overridden_scores[override.action] = override.confidence
                 return ConsensusResult(
                     action=override.action,
                     confidence=override.confidence,
                     votes=votes + [override],
-                    scores=result.scores,
+                    scores=overridden_scores,
                     reason=(
                         f"Judge override: {override.reasoning}. "
                         f"Original: {result.reason}"
                     ),
+                    judge_overridden=True,
                 )
         except Exception as e:
-            logger.warning(f"Judge function failed: {e}")
+            logger.warning(f"Judge function failed: {e}", exc_info=True)
 
         return result
 

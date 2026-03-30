@@ -109,6 +109,7 @@ class ConsensusResult:
     scores: Dict[str, float] = field(default_factory=dict)
     reason: Optional[str] = None
     debate_rounds: int = 0
+    judge_overridden: bool = False
     created_at: datetime = field(default_factory=datetime.now)
 
     @property
@@ -123,6 +124,7 @@ class ConsensusResult:
             "scores": self.scores,
             "reason": self.reason,
             "debate_rounds": self.debate_rounds,
+            "judge_overridden": self.judge_overridden,
             "created_at": self.created_at.isoformat(),
         }
 
@@ -135,6 +137,7 @@ class ConsensusResult:
             scores=data.get("scores", {}),
             reason=data.get("reason"),
             debate_rounds=data.get("debate_rounds", 0),
+            judge_overridden=data.get("judge_overridden", False),
             created_at=(
                 datetime.fromisoformat(data["created_at"])
                 if "created_at" in data

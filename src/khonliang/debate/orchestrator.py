@@ -194,6 +194,11 @@ class DebateOrchestrator:
         stance_a = ""
         stance_b = ""
         if self.config.assigned_stances:
+            if len(self.config.stance_labels) != 2:
+                raise ValueError(
+                    f"stance_labels must have exactly 2 elements, "
+                    f"got {len(self.config.stance_labels)}: {self.config.stance_labels}"
+                )
             stance_a, stance_b = self.config.stance_labels
             logger.info(
                 f"Assigned stances: {vote_a.agent_id}={stance_a}, "
