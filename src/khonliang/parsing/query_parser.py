@@ -30,6 +30,8 @@ import json
 import logging
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from khonliang.errors import LLMError
+
 logger = logging.getLogger(__name__)
 
 
@@ -118,8 +120,11 @@ class QueryParser:
                 result = await self._parse_llm(message)
                 if result is not None:
                     return result
-            except (TimeoutError, ConnectionError, ValueError) as e:
-                logger.debug(f"LLM parse failed: {e}")
+            except (LLMError, OSError, ConnectionError, TimeoutError) as e:
+                logger.warning("LLM parse failed, falling back: %s", e)
+            except Exception:
+                logger.exception("Unexpected error during LLM parse")
+                raise
 
         if self.fallback:
             return self.fallback(message)
@@ -149,8 +154,8 @@ class QueryParser:
                     if self.schema:
                         result = {k: v for k, v in result.items() if k in self.schema}
                     return result
-            except Exception:
-                logger.debug("generate_json unavailable or failed, falling back to generate")
+            except (LLMError, json.JSONDecodeError, ValueError):
+                logger.debug("generate_json failed, falling back to generate()")
 
         response = await self.client.generate(
             prompt=prompt,
