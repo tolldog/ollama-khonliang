@@ -36,6 +36,7 @@ class ModelMeta:
     container_id: str = ""  # if running in a container
 
     def to_dict(self) -> Dict[str, Any]:
+        """Serialize to dict, omitting falsy/empty values."""
         return {k: v for k, v in asdict(self).items() if v}
 
 
@@ -68,6 +69,7 @@ class AgentEnvelope:
         model_meta: Optional[ModelMeta] = None,
         correlation_id: str = "",
     ) -> "AgentEnvelope":
+        """Create a new envelope with an auto-generated correlation ID."""
         return cls(
             from_role=from_role,
             from_agent_id=from_agent_id,
@@ -99,6 +101,7 @@ class AgentEnvelope:
         )
 
     def to_dict(self) -> Dict[str, Any]:
+        """Serialize to dict, including model_meta if present."""
         data = {
             "envelope_id": self.envelope_id,
             "from_role": self.from_role,
@@ -115,6 +118,7 @@ class AgentEnvelope:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AgentEnvelope":
+        """Deserialize from a dict, reconstructing ModelMeta if present."""
         meta = data.get("model_meta")
         return cls(
             envelope_id=data.get("envelope_id", ""),

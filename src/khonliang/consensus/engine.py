@@ -51,6 +51,7 @@ class ConsensusEngine:
         return self.agent_weights.get(vote.agent_id, vote.weight)
 
     def calculate_consensus(self, votes: List[AgentVote]) -> ConsensusResult:
+        """Aggregate votes into a single ConsensusResult using weighted scoring."""
         if not votes:
             return ConsensusResult(
                 action="DEFER",
@@ -172,6 +173,7 @@ class ConsensusEngine:
         )
 
     def get_vote_summary(self, votes: List[AgentVote]) -> dict:
+        """Return a summary of votes grouped by action."""
         by_action: Dict[str, List[str]] = {}
         for vote in votes:
             by_action.setdefault(vote.action, []).append(vote.agent_id)
@@ -182,4 +184,5 @@ class ConsensusEngine:
         }
 
     def update_weights(self, weights: Dict[str, float]) -> None:
+        """Merge new per-agent weight overrides into the current weights."""
         self.agent_weights.update(weights)

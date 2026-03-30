@@ -73,6 +73,7 @@ class BenchmarkResult:
     error: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
+        """Return a serializable summary of the benchmark result."""
         return {
             "model": self.model,
             "available": self.available,
@@ -433,6 +434,7 @@ async def run_benchmark(args):
 
 
 def main():
+    """CLI entry point for running model benchmarks."""
     parser = argparse.ArgumentParser(
         prog="khonliang.llm.benchmark",
         description="Benchmark Ollama models for scheduler tuning",

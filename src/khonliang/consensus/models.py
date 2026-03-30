@@ -59,9 +59,11 @@ class AgentVote:
             raise ValueError(f"Confidence must be 0.0–1.0, got {self.confidence}")
 
     def weighted_score(self) -> float:
+        """Return confidence multiplied by weight."""
         return self.confidence * self.weight
 
     def to_dict(self) -> Dict[str, Any]:
+        """Serialize vote to a plain dict."""
         return {
             "agent_id": self.agent_id,
             "action": self.action,
@@ -74,6 +76,7 @@ class AgentVote:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AgentVote":
+        """Deserialize a vote from a dict."""
         return cls(
             agent_id=data["agent_id"],
             action=data["action"],
@@ -120,9 +123,11 @@ class ConsensusResult:
 
     @property
     def is_blocked(self) -> bool:
+        """True if the consensus action is VETO or any vote is VETO."""
         return self.action == "VETO" or any(v.action == "VETO" for v in self.votes)
 
     def to_dict(self) -> Dict[str, Any]:
+        """Serialize consensus result to a plain dict."""
         return {
             "action": self.action,
             "confidence": self.confidence,
@@ -138,6 +143,7 @@ class ConsensusResult:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ConsensusResult":
+        """Deserialize a consensus result from a dict."""
         return cls(
             action=data["action"],
             confidence=data["confidence"],
@@ -170,10 +176,12 @@ class AgentPerformance:
 
     @property
     def accuracy(self) -> float:
+        """Overall prediction accuracy (0.0-1.0)."""
         return self.correct_predictions / max(1, self.total_predictions)
 
     @property
     def recent_accuracy(self) -> float:
+        """Accuracy over the recent prediction window (0.0-1.0)."""
         return self.recent_correct / max(1, self.recent_total)
 
     @property
@@ -184,6 +192,7 @@ class AgentPerformance:
         return high_acc - baseline
 
     def to_dict(self) -> Dict[str, Any]:
+        """Serialize performance metrics to a plain dict."""
         return {
             "agent_id": self.agent_id,
             "total_predictions": self.total_predictions,

@@ -36,6 +36,7 @@ class IngestionResult:
     entries: List[str] = field(default_factory=list)  # IDs of added entries
 
     def to_dict(self) -> Dict[str, Any]:
+        """Serialize ingestion result to a plain dict."""
         return {
             "added": self.added,
             "updated": self.updated,

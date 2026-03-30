@@ -68,6 +68,7 @@ class ModelHealthTracker:
         return self._models[model]
 
     def record_failure(self, model: str) -> None:
+        """Record a failure for a model. May trigger cooldown if threshold is reached."""
         state = self._get_state(model)
         now = time.monotonic()
         state.failure_timestamps.append(now)
@@ -96,6 +97,7 @@ class ModelHealthTracker:
                     logger.debug(f"Health cooldown callback error: {e}")
 
     def record_success(self, model: str) -> None:
+        """Record a success for a model. Clears recent failure history."""
         if self._on_success:
             try:
                 self._on_success(model)
@@ -106,6 +108,7 @@ class ModelHealthTracker:
         state.total_successes += 1
 
     def is_cooled_down(self, model: str) -> bool:
+        """Return True if the model is currently in cooldown."""
         state = self._get_state(model)
         if state.cooldown_until == 0.0:
             return False
@@ -115,6 +118,7 @@ class ModelHealthTracker:
         return False
 
     def get_status(self, model: str) -> dict:
+        """Return a status dict for a model (failures, cooldown, successes)."""
         state = self._get_state(model)
         now = time.monotonic()
         cutoff = now - self.failure_window
@@ -131,4 +135,5 @@ class ModelHealthTracker:
         }
 
     def get_all_status(self) -> list:
+        """Return status dicts for all tracked models."""
         return [self.get_status(model) for model in self._models]

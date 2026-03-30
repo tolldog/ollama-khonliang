@@ -51,6 +51,7 @@ class GenerationResult:
 
     @property
     def duration_s(self) -> float:
+        """Total generation duration in seconds."""
         return self.total_duration_ns / 1e9 if self.total_duration_ns else 0.0
 
 
@@ -93,6 +94,7 @@ class OllamaClient:
         return self._session
 
     async def close(self) -> None:
+        """Close the underlying aiohttp session."""
         if self._session and not self._session.closed:
             await self._session.close()
             self._session = None
@@ -112,6 +114,16 @@ class OllamaClient:
         model: Optional[str] = None,
         extra_options: Optional[Dict[str, Any]] = None,
     ) -> str:
+        """Generate text from a prompt. Returns the response string.
+
+        Args:
+            prompt: The user prompt to send.
+            system: Optional system prompt.
+            temperature: Sampling temperature.
+            max_tokens: Maximum tokens to generate.
+            model: Override the client's default model.
+            extra_options: Additional Ollama options merged into the request.
+        """
         result = await self.generate_with_metrics(
             prompt=prompt,
             system=system,
@@ -131,6 +143,16 @@ class OllamaClient:
         model: Optional[str] = None,
         extra_options: Optional[Dict[str, Any]] = None,
     ) -> GenerationResult:
+        """Generate text and return a GenerationResult with token metrics.
+
+        Args:
+            prompt: The user prompt to send.
+            system: Optional system prompt.
+            temperature: Sampling temperature.
+            max_tokens: Maximum tokens to generate.
+            model: Override the client's default model.
+            extra_options: Additional Ollama options merged into the request.
+        """
         model_name = model or self.model
         model_timeout = self._get_timeout(model_name)
 
@@ -369,6 +391,7 @@ class OllamaClient:
             ) from e
 
     def is_available(self) -> bool:
+        """Synchronous health check. Returns True if Ollama is reachable."""
         import requests
         try:
             return requests.get(f"{self.base_url}/api/tags", timeout=5).status_code == 200
@@ -376,6 +399,7 @@ class OllamaClient:
             return False
 
     async def list_models(self) -> List[str]:
+        """Return names of all models available on the Ollama server."""
         try:
             session = await self._ensure_session()
             async with session.get(f"{self.base_url}/api/tags") as response:

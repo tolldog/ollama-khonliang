@@ -62,6 +62,7 @@ class Triple:
     access_count: int = 0
 
     def to_dict(self) -> Dict[str, Any]:
+        """Serialize triple to a plain dict."""
         return {
             "subject": self.subject,
             "predicate": self.predicate,
@@ -347,6 +348,7 @@ class TripleStore:
             conn.close()
 
     def get_stats(self) -> Dict[str, Any]:
+        """Return triple store statistics (counts of triples, subjects, predicates)."""
         conn = self._conn()
         try:
             total = conn.execute("SELECT COUNT(*) FROM triples").fetchone()[0]

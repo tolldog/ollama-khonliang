@@ -65,9 +65,11 @@ class ModelPool:
         return self._clients[model]
 
     def get_model_name(self, role) -> Optional[str]:
+        """Return the model name configured for a role, or None."""
         return self._map.get(str(role))
 
     async def close_all(self) -> None:
+        """Close all managed OllamaClient sessions."""
         for client in self._clients.values():
             await client.close()
         self._clients.clear()

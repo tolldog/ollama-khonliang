@@ -55,6 +55,7 @@ class ChannelMessage:
     timestamp: float = field(default_factory=time.time)
 
     def to_dict(self) -> Dict[str, Any]:
+        """Serialize to a plain dict."""
         return {
             "message_id": self.message_id,
             "channel": self.channel,
@@ -108,9 +109,11 @@ class ChannelManager:
         return channel
 
     def get_channel(self, name: str) -> Optional[Channel]:
+        """Return a channel by name, or None if not found."""
         return self._channels.get(name)
 
     def list_channels(self) -> List[str]:
+        """Return all channel names."""
         return list(self._channels.keys())
 
     def subscribe(
@@ -130,6 +133,7 @@ class ChannelManager:
         return True
 
     def unsubscribe(self, channel_name: str, agent_id: str) -> bool:
+        """Unsubscribe an agent from a channel. Returns False if channel not found."""
         channel = self._channels.get(channel_name)
         if not channel:
             return False

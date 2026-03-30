@@ -168,9 +168,11 @@ class AgentTeam:
             }
 
     def clear_cache(self) -> None:
+        """Remove all cached vote results."""
         self._vote_cache.clear()
 
     def get_stats(self) -> Dict[str, Any]:
+        """Return team configuration and cache statistics."""
         return {
             "agent_count": len(self.agents),
             "agents": [a.agent_id for a in self.agents],

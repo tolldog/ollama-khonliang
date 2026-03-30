@@ -48,6 +48,7 @@ class EngineResult:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
+        """Return a serializable dict of the engine result."""
         return {
             "title": self.title,
             "content": self.content,
@@ -174,6 +175,7 @@ class BaseEngine(ABC):
         return loop.run_in_executor(self._pool, func, *args)
 
     def get_stats(self) -> Dict[str, Any]:
+        """Return engine request and error counts."""
         return {
             "name": self.name,
             "max_threads": self.max_threads,

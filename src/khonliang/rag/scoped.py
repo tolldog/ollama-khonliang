@@ -107,6 +107,7 @@ class ScopedDocument:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
+        """Return a serializable dict of the document (excludes metadata)."""
         return {
             "id": self.id,
             "scope": self.scope,

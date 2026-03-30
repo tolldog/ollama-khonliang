@@ -39,10 +39,12 @@ class AgentCapability:
     input_schema: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
+        """Serialize to a plain dict."""
         return asdict(self)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AgentCapability":
+        """Deserialize from a dict."""
         return cls(
             agent_id=data["agent_id"],
             capability=data["capability"],
@@ -95,6 +97,7 @@ class CapabilityRegistry:
                 logger.warning(f"Failed to persist registry to Redis: {e}")
 
     def unregister(self, agent_id: str) -> None:
+        """Remove all capabilities for an agent."""
         self._capabilities.pop(agent_id, None)
         logger.info(f"Unregistered agent {agent_id}")
 
@@ -118,9 +121,11 @@ class CapabilityRegistry:
         return [cap.agent_id for cap in self.find(capability)]
 
     def get_agent_capabilities(self, agent_id: str) -> List[AgentCapability]:
+        """Return all capabilities registered for a specific agent."""
         return self._capabilities.get(agent_id, [])
 
     def list_all(self) -> Dict[str, List[AgentCapability]]:
+        """Return a copy of all agent-to-capabilities mappings."""
         return dict(self._capabilities)
 
     def list_capabilities(self) -> List[str]:
@@ -148,12 +153,14 @@ class CapabilityRegistry:
         return "\n".join(lines)
 
     def to_dict(self) -> Dict[str, Any]:
+        """Serialize the entire registry to a nested dict."""
         return {
             agent_id: [c.to_dict() for c in caps]
             for agent_id, caps in self._capabilities.items()
         }
 
     def load_from_redis(self) -> bool:
+        """Load capabilities from Redis. Returns True on success."""
         if self._redis is None:
             return False
         try:
@@ -170,6 +177,7 @@ class CapabilityRegistry:
             return False
 
     def get_stats(self) -> Dict[str, Any]:
+        """Return summary statistics about the registry."""
         total_caps = sum(len(caps) for caps in self._capabilities.values())
         return {
             "registered_agents": len(self._capabilities),

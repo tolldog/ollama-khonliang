@@ -164,4 +164,5 @@ class LLMManager:
 
     @property
     def backend_type(self) -> str:
+        """The configured backend type (e.g. 'internal' or 'grpc')."""
         return self._backend_type

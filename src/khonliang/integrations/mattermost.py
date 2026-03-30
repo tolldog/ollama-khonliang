@@ -51,13 +51,16 @@ class MattermostMessage:
 
     @property
     def is_thread_reply(self) -> bool:
+        """True if this message is a reply within a thread."""
         return bool(self.root_id)
 
     @property
     def is_direct_message(self) -> bool:
+        """True if this message was sent as a direct message."""
         return self.channel_type == "D"
 
     def get_mentions(self) -> List[str]:
+        """Extract @mentioned usernames from the message text."""
         return re.findall(r"@(\w+)", self.message)
 
 
@@ -149,6 +152,7 @@ class MattermostBot:
     def post_message(
         self, channel_id: str, message: str, root_id: Optional[str] = None
     ) -> Optional[Dict]:
+        """Post a message to a channel, optionally as a thread reply."""
         try:
             data: Dict = {"channel_id": channel_id, "message": message}
             if root_id:
@@ -159,10 +163,12 @@ class MattermostBot:
             return None
 
     def reply_to(self, msg: MattermostMessage, response: str) -> Optional[Dict]:
+        """Reply to a message in its thread."""
         root_id = msg.root_id or msg.post_id
         return self.post_message(msg.channel_id, response, root_id)
 
     def send_typing(self, channel_id: str, parent_id: Optional[str] = None) -> bool:
+        """Send a typing indicator to a channel. Returns True on success."""
         if not self._ws or not self._connected:
             return False
         try:
@@ -188,11 +194,13 @@ class MattermostBot:
     def typing_context_for_message(
         self, msg: MattermostMessage, interval: float = 3.0
     ) -> "TypingContext":
+        """Return a typing context manager scoped to the message's channel and thread."""
         return self.typing_context(msg.channel_id, msg.root_id or msg.post_id, interval)
 
     # --- Connection ---
 
     def authenticate(self) -> bool:
+        """Authenticate with the Mattermost server. Returns True on success."""
         try:
             if self.bot_token:
                 user = self._api_get("/users/me")
@@ -214,6 +222,7 @@ class MattermostBot:
             return False
 
     def connect(self) -> bool:
+        """Authenticate and open a WebSocket connection. Returns True on success."""
         if not self.bot_token and not (self.username and self.password):
             logger.error("No authentication credentials provided")
             return False
@@ -225,6 +234,7 @@ class MattermostBot:
         return self._connected
 
     def disconnect(self):
+        """Close the WebSocket connection and stop reconnection."""
         self._reconnect = False
         if self._ws:
             self._ws.close()
@@ -237,6 +247,7 @@ class MattermostBot:
 
     @property
     def is_connected(self) -> bool:
+        """True if connected or actively attempting to reconnect."""
         return self._connected or self._reconnect
 
     # --- Internal ---

@@ -41,6 +41,7 @@ class AgentMessage:
             self.message_id = str(uuid.uuid4())
 
     def to_dict(self) -> Dict[str, Any]:
+        """Serialize to a plain dict."""
         return {
             "agent_id": self.agent_id,
             "content": self.content,
@@ -54,6 +55,7 @@ class AgentMessage:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AgentMessage":
+        """Deserialize from a dict."""
         return cls(
             agent_id=data["agent_id"],
             content=data["content"],
@@ -98,19 +100,24 @@ class GatewayMetrics:
         self._start_time: float = time.time()
 
     def record_sent(self) -> None:
+        """Increment the sent message counter."""
         self.messages_sent += 1
 
     def record_received(self) -> None:
+        """Increment the received message counter."""
         self.messages_received += 1
 
     def record_failure(self) -> None:
+        """Increment the failed message counter."""
         self.messages_failed += 1
 
     @property
     def uptime_seconds(self) -> float:
+        """Seconds elapsed since this metrics instance was created or reset."""
         return time.time() - self._start_time
 
     def to_dict(self) -> Dict[str, Any]:
+        """Serialize all counters and uptime to a dict."""
         return {
             "messages_sent": self.messages_sent,
             "messages_received": self.messages_received,
@@ -121,6 +128,7 @@ class GatewayMetrics:
         }
 
     def reset(self) -> None:
+        """Reset all counters and restart the uptime clock."""
         self.messages_sent = 0
         self.messages_received = 0
         self.messages_failed = 0

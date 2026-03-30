@@ -66,6 +66,7 @@ class PersonalityConfig:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
+        """Serialize this personality to a plain dict."""
         return {
             "id": self.id,
             "name": self.name,
@@ -80,6 +81,7 @@ class PersonalityConfig:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "PersonalityConfig":
+        """Construct a PersonalityConfig from a dict (e.g. loaded from JSON)."""
         return cls(
             id=data["id"],
             name=data["name"],
@@ -212,9 +214,11 @@ class PersonalityRegistry:
         return None
 
     def list_all(self) -> List[PersonalityConfig]:
+        """Return all registered personalities."""
         return list(self._personalities.values())
 
     def list_enabled(self) -> List[PersonalityConfig]:
+        """Return only personalities with enabled=True."""
         return [p for p in self._personalities.values() if p.enabled]
 
     def load_from_file(self, path: str) -> int:

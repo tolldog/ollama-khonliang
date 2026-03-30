@@ -67,6 +67,7 @@ class ModelProfile:
         return self.avg_inference_ms
 
     def to_dict(self) -> Dict[str, Any]:
+        """Return a dict of non-empty profile fields for serialization."""
         return {k: v for k, v in asdict(self).items() if v}
 
 
