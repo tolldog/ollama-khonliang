@@ -2,13 +2,13 @@
 
 The LLM Manager provides score-based inference scheduling for multi-model workloads. On a single GPU host, loading a 19GB model while a 7B is running causes VRAM contention. The scheduler manages this by queuing requests, batching same-model work, and making score-based decisions about when to swap models.
 
-This is **optional** — projects that don't need it continue using `OllamaClient` directly with zero overhead.
+This is **optional** — projects that don't need it continue using `OllamaClient` or `OpenAIClient` directly with zero overhead.
 
 ## Architecture
 
 ```text
 LLMManager (facade)
-  └── InternalBackend (asyncio queues + OllamaClient)
+  └── InternalBackend (asyncio queues + any LLMClient)
         └── ModelScheduler (score-based queue logic)
               ├── Per-model request queues
               ├── Per-GPU state tracking

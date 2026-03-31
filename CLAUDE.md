@@ -35,10 +35,12 @@ khonliang test examples/helpdesk_bot/tests.jsonl
 
 The library is layered:
 
-**Connection layer** (`client.py`, `pool.py`, `health.py`, `errors.py`):
+**Connection layer** (`client.py`, `openai_client.py`, `protocols.py`, `pool.py`, `health.py`, `errors.py`):
 
+- `LLMClient` — runtime-checkable protocol defining the common interface for LLM clients. Both `OllamaClient` and `OpenAIClient` satisfy it.
 - `OllamaClient` — async HTTP client for Ollama `/api/generate` with per-model timeouts, exponential backoff retry (3 attempts, 1s->2s->4s), JSON generation with auto-cleanup, typed errors, and token-by-token streaming via `stream_generate()` (async generator).
-- `ModelPool` — maps role names to model strings and lazily creates/deduplicates `OllamaClient` instances.
+- `OpenAIClient` — async HTTP client for any OpenAI-compatible `/v1/chat/completions` endpoint. Works with vLLM, SGLang, llama.cpp, LM Studio, LocalAI, Groq, Together AI, Fireworks, OpenRouter, Cerebras, SambaNova. Same retry logic and error types as OllamaClient.
+- `ModelPool` — maps role names to model strings and lazily creates/deduplicates client instances. Supports mixed backends via URI scheme: `"openai://model"`, `"groq://model"` with a `backends` config dict.
 - `ModelHealthTracker` — tracks failures per model and enforces cooldown (default: 3 failures in 300s -> 60s cooldown).
 
 **Role layer** (`roles/`):
@@ -64,6 +66,8 @@ The library is layered:
 - `rag/scoped.py` — `ScopedRetriever` extends retrieval with per-agent knowledge scopes: `RAGScope.GLOBAL` (shared), `DOMAIN` (agent-specific), `CONVERSATIONAL` (past interactions), `EXPERT` (curated per agent). Agents declare their access via `RAGConfig(scopes=[...], collections=[...])`. Falls back to BM25 order silently when optional cross-encoder reranker is unavailable.
 - `integrations/mattermost.py` — `MattermostBot` connects via WebSocket, registers `on_mention` / `on_direct_message` handlers.
 - `agents/registry.py` — `ConfigRegistry[T]` — generic typed JSON-backed config persistence; requires `T` to have `to_dict()` and `from_dict()`.
+- `routing/model_router.py` — `ModelRouter` selects which model handles a request within a role. Three strategies: `StaticStrategy` (no-op), `ComplexityStrategy` (LLM-classifies prompt difficulty), `CascadeStrategy` (try cheapest first, escalate on low confidence — FrugalGPT pattern). Integrates with `ModelHealthTracker` to filter cooled-down models.
+- `mcp/server.py` — `KhonliangMCPServer` exposes knowledge, triples, blackboard, and roles to external LLMs via Model Context Protocol. Tools: `knowledge_search`, `knowledge_ingest`, `triple_add`, `blackboard_post`, `invoke_role`, etc. Resources: `knowledge://axioms`, `blackboard://sections`. Transports: stdio (for Claude Code) and streamable HTTP.
 
 **Additional modules:**
 
@@ -76,7 +80,7 @@ The library is layered:
 - `training/` — `FeedbackStore` for RLHF-style data collection, `TrainingExporter` for fine-tuning dataset preparation, `HeuristicPool` for outcome-based pattern discovery.
 - `parsing/query_parser.py` — `QueryParser` uses LLM-backed structured extraction to convert natural language queries into typed filter parameters.
 
-**Public API** (from `khonliang/__init__.py`): `OllamaClient`, `GenerationResult`, `ModelPool`, `ModelHealthTracker`, `BaseRole`, `BaseRouter`, `PersonalityConfig`, `PersonalityRegistry`, and all error types. All other modules must be imported directly.
+**Public API** (from `khonliang/__init__.py`): `OllamaClient`, `OpenAIClient`, `LLMClient`, `GenerationResult`, `ModelPool`, `ModelHealthTracker`, `BaseRole`, `BaseRouter`, `Blackboard`, `PersonalityConfig`, `PersonalityRegistry`, and all error types. `KhonliangMCPServer` is conditionally available when `mcp` is installed. All other modules must be imported directly.
 
 ## Key Design Conventions
 
