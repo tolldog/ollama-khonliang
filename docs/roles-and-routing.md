@@ -22,9 +22,14 @@ class ResearcherRole(BaseRole):
     def build_context(self, message, context=None):
         """Inject family tree data into the prompt."""
         person = self.tree.find_person(message)
-        if person:
-            return self.tree.build_context(person.xref, depth=2)
-        return self.tree.get_summary()
+        tree_ctx = (
+            self.tree.build_context(person.xref, depth=2)
+            if person
+            else self.tree.get_summary()
+        )
+        # Call super() to append Blackboard context if a board is attached
+        board_ctx = super().build_context(message, context)
+        return f"{tree_ctx}\n{board_ctx}".strip() if board_ctx else tree_ctx
 
     async def handle(self, message, session_id, context=None):
         ctx = self.build_context(message, context)
