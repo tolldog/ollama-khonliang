@@ -177,7 +177,7 @@ class WebSearchResearcher(CompositeResearcher):
         super().stop_engines()
 ```
 
-## Research Pool
+## Pool Management
 
 The pool manages a queue of research tasks, dispatches them to capable researchers, and optionally auto-indexes results into the knowledge store.
 

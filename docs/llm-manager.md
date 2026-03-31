@@ -91,7 +91,7 @@ await manager.generate(
 
 The scheduler decides which model to run next using a score:
 
-```
+```text
 score(model) = avg_wait_time * queue_depth * max_priority * swap_factor
 
 where:

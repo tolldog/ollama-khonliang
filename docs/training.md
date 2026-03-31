@@ -57,7 +57,7 @@ if rating >= 4:
 
 The `/rate` command in the CLI provides the same:
 
-```
+```text
 > Tell me about Timothy Toll
 [researcher] Timothy Toll was born in 1842 in Ohio...
 > /rate 5
