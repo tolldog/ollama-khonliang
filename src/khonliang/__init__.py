@@ -64,4 +64,9 @@ __all__ = [
     "LLMCooldownError",
 ]
 
+try:
+    from khonliang.mcp import KhonliangMCPServer  # noqa: F401
+except ImportError:
+    pass
+
 __version__ = "0.1.0"
