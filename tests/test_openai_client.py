@@ -196,6 +196,16 @@ class TestModelPoolMixedBackends:
         with pytest.raises(KeyError, match="Backend 'vllm' not configured"):
             pool.get_client("narrator")
 
+    def test_missing_base_url_raises_value_error(self):
+        from khonliang.pool import ModelPool
+
+        pool = ModelPool(
+            {"narrator": "openai://llama3.1:70b"},
+            backends={"openai": {"api_key": "sk-test"}},  # no base_url
+        )
+        with pytest.raises(ValueError, match="missing required 'base_url'"):
+            pool.get_client("narrator")
+
     def test_get_model_name_strips_scheme(self):
         from khonliang.pool import ModelPool
 
