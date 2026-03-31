@@ -1,14 +1,23 @@
 """
-Model pool — maps roles to OllamaClient instances.
+Model pool — maps roles to LLM client instances.
 
 Lazy-loads clients on first access. Roles that share the same model
-reuse a single OllamaClient instance.
+reuse a single client instance. Supports mixed backends via URI scheme:
+
+    pool = ModelPool({
+        "researcher": "llama3.2:3b",                  # Ollama (default)
+        "narrator": "openai://llama3.1:70b",          # vLLM / OpenAI-compatible
+        "classifier": "groq://llama-3.2-3b-preview",  # Groq cloud
+    }, backends={
+        "openai": {"base_url": "http://gpu-box:8000/v1"},
+        "groq": {"base_url": "https://api.groq.com/openai/v1", "api_key": "gsk_..."},
+    })
 """
 
 import logging
 import time
 from collections import deque
-from typing import Any, Callable, Deque, Dict, Optional, Tuple
+from typing import Any, Callable, Deque, Dict, Optional, Tuple, Union
 
 from khonliang.client import OllamaClient
 
@@ -27,19 +36,28 @@ DEFAULT_ADAPTIVE_CONFIG: Dict[str, Any] = {
 
 class ModelPool:
     """
-    Manages OllamaClient instances per role.
+    Manages LLM client instances per role.
 
-    Pass a plain dict mapping role names (str) or Enum values to model names.
-    Clients that share the same model reuse a single connection.
+    Pass a plain dict mapping role names (str) or Enum values to model
+    specifiers. Plain model names use Ollama. URI-prefixed names
+    (e.g. "openai://model") use the corresponding backend.
 
-    Example:
+    Examples:
+        # Pure Ollama (backward compatible)
         pool = ModelPool({
             "triage":     "llama3.2:3b",
             "researcher": "qwen2.5:7b",
-            "writer":     "llama3.1:8b",
         })
-        client = pool.get_client("triage")
-        response = await client.generate("Is this urgent?")
+
+        # Mixed backends
+        pool = ModelPool({
+            "researcher": "llama3.2:3b",
+            "narrator": "openai://llama3.1:70b",
+            "classifier": "groq://llama-3.2-3b-preview",
+        }, backends={
+            "openai": {"base_url": "http://gpu-box:8000/v1"},
+            "groq": {"base_url": "https://api.groq.com/openai/v1", "api_key": "gsk_..."},
+        })
     """
 
     def __init__(
@@ -51,28 +69,31 @@ class ModelPool:
         adaptive_keep_alive: bool = False,
         adaptive_config: Optional[Dict[str, Any]] = None,
         on_call: Optional[Callable[[str, float], None]] = None,
+        backends: Optional[Dict[str, Dict[str, Any]]] = None,
     ):
         """
         Args:
-            role_model_map: Dict mapping role names to model names
-            base_url: Ollama server URL
+            role_model_map: Dict mapping role names to model specifiers.
+                Plain names (e.g. "llama3.2:3b") use Ollama.
+                Prefixed names (e.g. "openai://model") use the named backend.
+            base_url: Ollama server URL (for plain model names)
             model_timeouts: Optional per-model timeout overrides
-                e.g. {"deepseek-r1:32b": 300, "llama3.2:3b": 30}
             keep_alive: Optional per-role keep_alive overrides
-                e.g. {"triage": "5m", "researcher": "10m"}
             adaptive_keep_alive: If True, automatically adjust keep_alive
                 based on call frequency (hot/warm/cold classification)
             adaptive_config: Override adaptive keep-alive thresholds.
                 See DEFAULT_ADAPTIVE_CONFIG for keys.
             on_call: Optional callback invoked after each generate() call
-                with (role: str, duration_ms: float). Useful for external
-                monitoring. Consumers should call record_call() after their
-                generate() call to trigger this callback.
+            backends: Optional dict of backend configs for non-Ollama models.
+                Keys are scheme names (e.g. "openai", "groq").
+                Values are dicts with at least "base_url" and optionally
+                "api_key", "timeout", "model_timeouts".
         """
         self._map = {str(k): v for k, v in role_model_map.items()}
-        self._clients: Dict[str, OllamaClient] = {}
+        self._clients: Dict[str, Union[OllamaClient, Any]] = {}
         self._base_url = base_url
         self._model_timeouts = model_timeouts
+        self._backends = backends or {}
         self._keep_alive = keep_alive or {}
         self._adaptive_keep_alive = adaptive_keep_alive
         self._adaptive_config = {**DEFAULT_ADAPTIVE_CONFIG, **(adaptive_config or {})}
@@ -87,9 +108,25 @@ class ModelPool:
         # Usage metrics: per-role deque of (timestamp, duration_ms)
         self._usage: Dict[str, Deque[Tuple[float, float]]] = {}
 
-    def get_client(self, role) -> OllamaClient:
+    @staticmethod
+    def _parse_model_spec(spec: str) -> tuple:
+        """Parse a model specifier into (scheme, model_name).
+
+        "llama3.2:3b" → (None, "llama3.2:3b")     — Ollama
+        "openai://llama3.1:70b" → ("openai", "llama3.1:70b")
+        "groq://llama-3.2-3b" → ("groq", "llama-3.2-3b")
         """
-        Get OllamaClient for the given role. Creates on first access.
+        if "://" in spec:
+            scheme, model = spec.split("://", 1)
+            return (scheme, model)
+        return (None, spec)
+
+    def get_client(self, role):
+        """
+        Get LLM client for the given role. Creates on first access.
+
+        Returns an OllamaClient for plain model names, or an OpenAIClient
+        for URI-prefixed model names (e.g. "openai://model").
 
         The per-role keep_alive value is resolved and stored separately
         so that shared clients (multiple roles using the same model) are
@@ -97,18 +134,40 @@ class ModelPool:
         value and pass it to generate(keep_alive=...).
         """
         role_str = str(role)
-        model = self._map.get(role_str)
-        if model is None:
+        spec = self._map.get(role_str)
+        if spec is None:
             raise KeyError(f"No model configured for role '{role}'")
 
-        if model not in self._clients:
-            logger.debug(f"Creating OllamaClient for {role} -> {model}")
-            client = OllamaClient(
-                model=model,
-                base_url=self._base_url,
-                model_timeouts=self._model_timeouts,
-            )
-            self._clients[model] = client
+        scheme, model = self._parse_model_spec(spec)
+        cache_key = f"{scheme}://{model}" if scheme else model
+
+        if cache_key not in self._clients:
+            if scheme and scheme in self._backends:
+                from khonliang.openai_client import OpenAIClient
+
+                cfg = self._backends[scheme]
+                logger.debug(f"Creating OpenAIClient for {role} -> {scheme}://{model}")
+                client = OpenAIClient(
+                    model=model,
+                    base_url=cfg["base_url"],
+                    api_key=cfg.get("api_key"),
+                    timeout=cfg.get("timeout", 120),
+                    model_timeouts=cfg.get("model_timeouts", self._model_timeouts),
+                )
+                self._clients[cache_key] = client
+            elif scheme:
+                raise KeyError(
+                    f"Backend '{scheme}' not configured. "
+                    f"Add it to ModelPool(backends={{'{scheme}': {{...}}}})"
+                )
+            else:
+                logger.debug(f"Creating OllamaClient for {role} -> {model}")
+                client = OllamaClient(
+                    model=model,
+                    base_url=self._base_url,
+                    model_timeouts=self._model_timeouts,
+                )
+                self._clients[cache_key] = client
 
         # Always resolve per-role keep_alive (static config may change)
         if role_str in self._keep_alive:
@@ -116,9 +175,9 @@ class ModelPool:
 
         # Track call timestamp for adaptive keep-alive
         now = time.time()
-        if model not in self._call_timestamps:
-            self._call_timestamps[model] = deque(maxlen=1000)
-        self._call_timestamps[model].append(now)
+        if cache_key not in self._call_timestamps:
+            self._call_timestamps[cache_key] = deque(maxlen=1000)
+        self._call_timestamps[cache_key].append(now)
 
         # Resolve adaptive keep-alive per-role without mutating shared client
         if self._adaptive_keep_alive:
@@ -131,7 +190,7 @@ class ModelPool:
             else:
                 self._resolved_keep_alive[role_str] = cfg["cold_keep_alive"]
 
-        return self._clients[model]
+        return self._clients[cache_key]
 
     def get_keep_alive(self, role) -> Optional[str]:
         """
@@ -146,8 +205,15 @@ class ModelPool:
         return self._resolved_keep_alive.get(str(role))
 
     def get_model_name(self, role) -> Optional[str]:
-        """Return the model name configured for a role, or None."""
-        return self._map.get(str(role))
+        """Return the model name configured for a role, or None.
+
+        Returns the clean model name without any scheme prefix.
+        """
+        spec = self._map.get(str(role))
+        if spec is None:
+            return None
+        _, model = self._parse_model_spec(spec)
+        return model
 
     def get_model_temperature(self, role) -> str:
         """
@@ -156,11 +222,13 @@ class ModelPool:
         Returns "hot", "warm", or "cold" based on calls within the
         configured lookback window.
         """
-        model = self._map.get(str(role))
-        if model is None:
+        spec = self._map.get(str(role))
+        if spec is None:
             return "cold"
 
-        timestamps = self._call_timestamps.get(model, deque())
+        scheme, model = self._parse_model_spec(spec)
+        cache_key = f"{scheme}://{model}" if scheme else model
+        timestamps = self._call_timestamps.get(cache_key, deque())
         cfg = self._adaptive_config
         window = cfg["window_seconds"]
         cutoff = time.time() - window

@@ -1,8 +1,9 @@
 """
-Internal LLM backend — in-process scheduler wrapping OllamaClient.
+Internal LLM backend — in-process scheduler wrapping an LLM client.
 
-For single-host setups where Ollama runs locally. Uses asyncio
-queues and the ModelScheduler for score-based request ordering.
+For single-host setups where Ollama (or any OpenAI-compatible server)
+runs locally. Uses asyncio queues and the ModelScheduler for
+score-based request ordering.
 """
 
 import asyncio
@@ -46,9 +47,10 @@ class InternalBackend:
         max_batch_size: int = 10,
         model_vram: Optional[Dict[str, int]] = None,
         pinned_models: Optional[list] = None,
+        client: Optional[Any] = None,
     ):
         self._ollama_url = ollama_url
-        self._client = OllamaClient(base_url=ollama_url)
+        self._client = client or OllamaClient(base_url=ollama_url)
         self._scheduler = ModelScheduler(
             gpus=gpus,
             max_batch_size=max_batch_size,
