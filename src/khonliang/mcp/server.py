@@ -14,9 +14,8 @@ Example:
 
 import json
 import logging
+import uuid
 from typing import Any, Dict, Optional
-
-from mcp.server.fastmcp import FastMCP
 
 logger = logging.getLogger(__name__)
 
@@ -52,8 +51,11 @@ class KhonliangMCPServer:
         self.roles = roles or {}
         self.router = router
 
-    def create_app(self) -> FastMCP:
+    def create_app(self):
         """Create a FastMCP app with tools and resources registered."""
+        from mcp.server.fastmcp import FastMCP
+
+        logger.info("Creating khonliang MCP server")
         mcp = FastMCP("khonliang")
 
         self._register_knowledge_tools(mcp)
@@ -67,7 +69,7 @@ class KhonliangMCPServer:
 
     # -- Knowledge tools --
 
-    def _register_knowledge_tools(self, mcp: FastMCP) -> None:
+    def _register_knowledge_tools(self, mcp: Any) -> None:
         if not self.knowledge_store:
             return
 
@@ -101,7 +103,7 @@ class KhonliangMCPServer:
                 from khonliang.knowledge.store import KnowledgeEntry, Tier
 
                 entry = KnowledgeEntry(
-                    id="",
+                    id=f"mcp-{uuid.uuid4().hex[:8]}",
                     tier=Tier.IMPORTED,
                     title=title,
                     content=content,
@@ -125,7 +127,7 @@ class KhonliangMCPServer:
 
     # -- Triple tools --
 
-    def _register_triple_tools(self, mcp: FastMCP) -> None:
+    def _register_triple_tools(self, mcp: Any) -> None:
         if not self.triple_store:
             return
 
@@ -175,7 +177,7 @@ class KhonliangMCPServer:
 
     # -- Blackboard tools --
 
-    def _register_blackboard_tools(self, mcp: FastMCP) -> None:
+    def _register_blackboard_tools(self, mcp: Any) -> None:
         if not self.blackboard:
             return
 
@@ -196,6 +198,8 @@ class KhonliangMCPServer:
             """Read entries from a blackboard section."""
             entries = board.read(section, key=key or None)
             if not entries:
+                if key:
+                    return f"Key '{key}' not found in section '{section}'"
                 return f"No entries in section '{section}'"
             lines = [f"Section '{section}' ({len(entries)} entries):"]
             for k, v in entries.items():
@@ -212,7 +216,7 @@ class KhonliangMCPServer:
 
     # -- Role tools --
 
-    def _register_role_tools(self, mcp: FastMCP) -> None:
+    def _register_role_tools(self, mcp: Any) -> None:
         if not self.roles:
             return
 
@@ -248,7 +252,7 @@ class KhonliangMCPServer:
 
     # -- Session tools --
 
-    def _register_session_tools(self, mcp: FastMCP) -> None:
+    def _register_session_tools(self, mcp: Any) -> None:
         if not self.session:
             return
 
@@ -261,7 +265,7 @@ class KhonliangMCPServer:
 
     # -- Resources --
 
-    def _register_resources(self, mcp: FastMCP) -> None:
+    def _register_resources(self, mcp: Any) -> None:
         if self.knowledge_store:
             store = self.knowledge_store
 
