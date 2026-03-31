@@ -51,6 +51,7 @@ class BaseRole(ABC):
         prompts_dir: Optional[Path] = None,
         max_context_tokens: Optional[int] = None,
         board: Optional[Any] = None,
+        model_router: Optional[Any] = None,
     ):
         """
         Args:
@@ -65,6 +66,9 @@ class BaseRole(ABC):
                 LLM-based compression is a future enhancement.
             board: Optional Blackboard instance for shared agent context.
                 When set, build_context() appends board entries automatically.
+            model_router: Optional ModelRouter for dynamic model selection
+                within this role. When set, _select_model() picks the best
+                model for each message based on the configured strategy.
         """
         self.role = role
         self._model_pool = model_pool
@@ -72,6 +76,7 @@ class BaseRole(ABC):
         self._system_prompt = system_prompt
         self.max_context_tokens = max_context_tokens
         self.board = board
+        self._model_router = model_router
 
     @property
     def client(self) -> "LLMClient":
@@ -178,11 +183,37 @@ class BaseRole(ABC):
         """
         ...
 
+    async def _select_model(self, message: str) -> Optional[str]:
+        """Select a model for this message using the model router.
+
+        Returns the model name if a router is configured and selects
+        a model, or None to use the default from ModelPool.
+        """
+        if self._model_router is None:
+            return None
+        try:
+            selection = await self._model_router.select(self.role, message)
+            if selection.model:
+                return selection.model
+        except Exception as e:
+            logger.debug(f"Model router failed for {self.role}: {e}")
+        return None
+
     async def _timed_generate(
-        self, prompt: str, system: Optional[str] = None, **kwargs
+        self, prompt: str, system: Optional[str] = None, model: Optional[str] = None,
+        **kwargs,
     ) -> tuple[str, int]:
-        """Generate with wall-clock timing. Returns (text, elapsed_ms)."""
+        """Generate with wall-clock timing. Returns (text, elapsed_ms).
+
+        Args:
+            prompt: The prompt to generate from.
+            system: Optional system prompt.
+            model: Optional model override. When provided, passes it to
+                the client's generate() method to override the default model.
+        """
         start = time.time()
+        if model:
+            kwargs["model"] = model
         response = await self.client.generate(prompt=prompt, system=system, **kwargs)
         elapsed_ms = int((time.time() - start) * 1000)
         return response, elapsed_ms
