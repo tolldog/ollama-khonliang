@@ -23,11 +23,16 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ModelSelection:
-    """Result of a model routing decision."""
+    """Result of a model routing decision.
+
+    When CascadeStrategy is used, generated_text contains the response
+    produced during selection, avoiding a redundant second generation.
+    """
 
     model: str
     reason: str
     model_preferences: List[str] = field(default_factory=list)
+    generated_text: Optional[str] = None
 
 
 @runtime_checkable
@@ -176,7 +181,6 @@ class CascadeStrategy:
         self._evaluator = evaluator
         self._max_escalations = max_escalations
         self._system_prompt = system_prompt
-        self.last_response: Optional[str] = None
 
     def _heuristic_confidence(self, response: str) -> float:
         """Simple heuristic confidence when no evaluator is configured."""
@@ -223,12 +227,12 @@ class CascadeStrategy:
 
             is_last = i >= len(candidates) - 1 or i >= self._max_escalations
             if confidence >= self._threshold or is_last:
-                self.last_response = response
                 remaining = [c for c in candidates[i:] if c != model]
                 return ModelSelection(
                     model=model,
                     reason=f"cascade:tier{i}:confidence={confidence:.0%}",
                     model_preferences=[model] + remaining,
+                    generated_text=response,
                 )
 
             logger.info(

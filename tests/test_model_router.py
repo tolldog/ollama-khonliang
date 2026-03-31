@@ -126,7 +126,7 @@ class TestCascadeStrategy:
         )
         assert result.model == "small"
         assert "tier0" in result.reason
-        assert strategy.last_response is not None
+        assert result.generated_text is not None
 
     @pytest.mark.asyncio
     async def test_escalates_on_low_confidence(self):
