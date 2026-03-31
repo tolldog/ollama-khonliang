@@ -14,6 +14,7 @@ pip install -e ".[rag]"             # + fastembed + semantic-router
 pip install -e ".[mattermost]"      # + websocket-client
 pip install -e ".[gateway]"         # + redis
 pip install -e ".[discovery]"       # + zeroconf
+pip install -e ".[reporting]"       # + flask + markdown
 pip install -e ".[all]"             # Everything
 pip install -e ".[dev]"             # + pytest, ruff, mypy
 ```
@@ -68,6 +69,8 @@ The library is layered:
 - `agents/registry.py` — `ConfigRegistry[T]` — generic typed JSON-backed config persistence; requires `T` to have `to_dict()` and `from_dict()`.
 - `routing/model_router.py` — `ModelRouter` selects which model handles a request within a role. Three strategies: `StaticStrategy` (no-op), `ComplexityStrategy` (LLM-classifies prompt difficulty), `CascadeStrategy` (try cheapest first, escalate on low confidence — FrugalGPT pattern). Integrates with `ModelHealthTracker` to filter cooled-down models.
 - `mcp/server.py` — `KhonliangMCPServer` exposes knowledge, triples, blackboard, and roles to external LLMs via Model Context Protocol. Tools: `knowledge_search`, `knowledge_ingest`, `triple_add`, `blackboard_post`, `invoke_role`, etc. Resources: `knowledge://axioms`, `blackboard://sections`. Transports: stdio (for Claude Code) and streamable HTTP.
+
+- `reporting/` — Agent report persistence and HTTP serving pipeline. `ReportDetector` applies pluggable heuristics (length, structure, keywords) to decide if content is report-worthy. `ReportManager` persists reports to SQLite with metadata, view tracking, and TTL-based expiration. `ReportServer` serves reports as styled HTML via Flask with JSON API endpoints. Reports support `chat_context` for bi-directional linkback to chat integrations (e.g. Mattermost permalink).
 
 **Additional modules:**
 
