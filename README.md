@@ -24,6 +24,22 @@ _A llama rancher_ — multi-agent LLM orchestration framework for [Ollama](https
 - **mDNS service discovery** — advertise and discover services on the local network
 - **Agent gateway** — Redis Streams message bus for distributed agents
 
+## Documentation
+
+| Guide                                          | Description                                                     |
+| ---------------------------------------------- | --------------------------------------------------------------- |
+| [Getting Started](docs/getting-started.md)     | Installation, quick example, architecture overview              |
+| [Roles & Routing](docs/roles-and-routing.md)   | Defining roles, routing rules, session context, self-evaluation |
+| [Knowledge System](docs/knowledge.md)          | Three-tier store, librarian, triples, reports                   |
+| [Research Pool](docs/research.md)              | Engines, researchers, triggers, parallel search                 |
+| [LLM Manager](docs/llm-manager.md)             | Score-based scheduling, VRAM management, model profiles         |
+| [Consensus & Voting](docs/consensus.md)        | Multi-agent teams, weighted voting, debate                      |
+| [Gateway & Agents](docs/gateway-and-agents.md) | Message bus, blackboard, channels, activation                   |
+| [Training & Feedback](docs/training.md)        | Interaction logging, feedback, heuristic extraction             |
+| [Parsing](docs/parsing.md)                     | Structured JSON extraction, query parsing                       |
+
+See the [genealogy example project](https://github.com/tolldog/khonliang-genealogy-example) for a full working application using most features.
+
 ## Installation
 
 ```bash
