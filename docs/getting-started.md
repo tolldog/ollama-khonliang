@@ -61,7 +61,7 @@ asyncio.run(main())
 
 ## Real-World Example: Genealogy Agent
 
-The [khonliang-genealogy-example](https://github.com/tolldog/khonliang-geneology-example) project demonstrates most khonliang features. It's an LLM-backed genealogy research tool that uses:
+The [khonliang-genealogy-example](https://github.com/tolldog/khonliang-genealogy-example) project demonstrates most khonliang features. It's an LLM-backed genealogy research tool that uses:
 
 - **3 roles** — researcher, fact checker, narrator
 - **Keyword routing** to dispatch queries to the right role

@@ -6,15 +6,15 @@ The research system provides background data acquisition from multiple sources i
 
 ```text
 ResearchPool
-  ├── WebSearchResearcher (capabilities: person_lookup, web_search, historical_context)
-  │     ├── DDG engine
-  │     ├── Google engine
-  │     ├── Bing engine
-  │     ├── WikiTree engine
-  │     └── Geni engine
-  ├── TreeResearcher (capabilities: tree_lookup, tree_ancestors, tree_migration)
+  ├── CompositeResearcher (user-defined, wraps multiple engines)
+  │     ├── Engine A (e.g., DDG search)
+  │     ├── Engine B (e.g., WikiTree API)
+  │     └── Engine C (e.g., custom REST service)
+  ├── BaseResearcher (user-defined, direct task processing)
   └── Librarian (auto-indexes completed results into Tier 3)
 ```
+
+khonliang provides the `BaseEngine`, `BaseResearcher`, and `CompositeResearcher` abstractions. You implement concrete engines for your data sources. The genealogy project, for example, defines DDG, Google, Bing, WikiTree, and Geni engines.
 
 ## Engines
 
@@ -61,7 +61,7 @@ engine.start()   # Initialize thread pool
 results = await engine.query("Roger Tolle")  # Rate-limited, with timeout
 
 stats = engine.get_stats()
-# {"requests": 12, "errors": 1, "avg_ms": 450}
+# {"name": "wikitree", "max_threads": 2, "rate_limit": 1.0, "requests": 12, "errors": 1}
 
 engine.stop()    # Shutdown thread pool
 ```
@@ -145,11 +145,10 @@ class WebSearchResearcher(CompositeResearcher):
         self.tree = tree
 
         # Register engines — all queried in parallel
+        # These are user-defined BaseEngine subclasses (not provided by khonliang)
         self.add_engine(DDGEngine())
         self.add_engine(GoogleEngine())
-        self.add_engine(BingEngine())
         self.add_engine(WikiTreeEngine())
-        self.add_engine(GeniEngine())
 
         # Optional post-collection filter
         self.set_filter(self._relevance_filter)
@@ -184,6 +183,7 @@ The pool manages a queue of research tasks, dispatches them to capable researche
 
 ```python
 from khonliang.research import ResearchPool
+from khonliang.research.models import ResearchTask
 
 pool = ResearchPool(max_queue_size=100)
 
@@ -222,7 +222,8 @@ results = pool.get_all_results(limit=20)
 
 # Status
 status = pool.get_status()
-# {"queued": 3, "active": 1, "completed": 47, "failed": 2, "researchers": [...]}
+# {"queue_size": 3, "active_tasks": 1, "completed": 47, "failed": 2,
+#  "results_cached": 45, "running": True, "researchers": {...}, "capability_map": {...}}
 
 # Cleanup
 pool.stop()

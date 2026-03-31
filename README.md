@@ -38,7 +38,7 @@ _A llama rancher_ — multi-agent LLM orchestration framework for [Ollama](https
 | [Training & Feedback](docs/training.md)        | Interaction logging, feedback, heuristic extraction             |
 | [Parsing](docs/parsing.md)                     | Structured JSON extraction, query parsing                       |
 
-See the [genealogy example project](https://github.com/tolldog/khonliang-geneology-example) for a full working application using most features.
+See the [genealogy example project](https://github.com/tolldog/khonliang-genealogy-example) for a full working application using most features.
 
 ## Installation
 

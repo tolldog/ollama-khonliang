@@ -17,33 +17,28 @@ parser = StructuredBlockParser(
     valid_actions=["verify", "research", "ignore"],
 )
 
-# Parse an LLM response
-response = '''
-Based on the tree data, here are my findings:
-
-```analysis
-{
-  "findings": [
-    {"name": "Roger Tolle", "action": "verify", "detail": "Birth date uncertain"},
-    {"name": "Timothy Toll", "action": "research", "detail": "Missing mother's maiden name"}
-  ],
-  "confidence": 0.85
-}
-````
-
-'''
+# Parse an LLM response that contains a fenced JSON block
+response = (
+    "Based on the tree data, here are my findings:\n\n"
+    '```analysis\n'
+    '{"findings": ['
+    '{"name": "Roger Tolle", "action": "verify", "detail": "Birth date uncertain"}, '
+    '{"name": "Timothy Toll", "action": "research", "detail": "Missing mother\'s maiden name"}'
+    '], "confidence": 0.85}\n'
+    '```'
+)
 
 result = parser.parse(response)
 if result:
-for item in result.items:
-print(f"{item['name']}: {item['action']} — {item['detail']}")
-print(f"Metadata: {result.metadata}")
-
+    for item in result.items:
+        print(f"{item['name']}: {item['action']} — {item['detail']}")
+    print(f"Metadata: {result.metadata}")
 ````
 
 ### Search Order
 
 The parser tries to find JSON in this order:
+
 1. Custom fence (e.g., ` ```analysis `)
 2. Generic ` ```json ` fence
 3. Raw JSON (first `{...}` block in the response)
@@ -51,6 +46,7 @@ The parser tries to find JSON in this order:
 ### LLM JSON Cleanup
 
 LLMs frequently produce invalid JSON. The parser auto-fixes:
+
 - Python booleans: `True`/`False`/`None` → `true`/`false`/`null`
 - Trailing commas: `[1, 2, 3,]` → `[1, 2, 3]`
 - Single-line comments: `// this is a comment` → removed
@@ -86,13 +82,15 @@ params = await parser.parse("find all men born in Ohio before 1920")
 
 params = await parser.parse("women named Toll from the 1800s")
 # {"name": "Toll", "gender": "female", "birth_year_min": 1800, "birth_year_max": 1899}
-````
+```
 
 ### Fallback
 
 If the LLM is unavailable, the parser falls back to regex extraction or a custom fallback function:
 
 ```python
+import re
+
 def regex_fallback(message):
     """Extract what we can without an LLM."""
     params = {}

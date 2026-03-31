@@ -71,69 +71,64 @@ Export interaction data for fine-tuning:
 ```python
 from khonliang.training.exporter import TrainingExporter
 
-exporter = TrainingExporter(feedback_store=feedback)
+# Point the exporter at the same feedback database
+exporter = TrainingExporter(db_path="data/knowledge.db")
 
-# Export positive examples (rating >= 4)
-examples = exporter.export_positive(min_rating=4, limit=1000)
-# [{"prompt": "...", "completion": "...", "system": "...", "rating": 5}, ...]
+# Collect supervised fine-tuning examples (e.g., rating >= 4)
+examples = exporter.collect(min_rating=4, limit=1000)
+# [TrainingExample(prompt="...", completion="...", system="...", rating=5), ...]
 
-# Export as JSONL for fine-tuning
-exporter.export_jsonl("training_data.jsonl", min_rating=4)
+# Export as JSONL for fine-tuning (supports alpaca, sharegpt, completion formats)
+exporter.export("training_data.jsonl", fmt="alpaca", min_rating=4)
 
-# Export negative examples for DPO/RLHF
-pairs = exporter.export_preference_pairs(min_gap=2)
-# [{"prompt": "...", "chosen": "...", "rejected": "..."}, ...]
+# Check export stats
+print(exporter.stats())
 ```
 
-## Unindexed Feedback
+## Indexing Feedback into RAG
 
-Feedback entries that haven't been indexed into RAG yet:
+High-quality feedback can be auto-indexed into the knowledge store:
 
 ```python
-# Get unprocessed feedback
-unindexed = feedback.list_unindexed(limit=50)
+# Index all high-rated, unindexed feedback into knowledge
+stats = feedback.index_into_rag(min_rating=4)
+# {"indexed": 12, "skipped": 3, "errors": 0}
 
-for fb in unindexed:
-    # Index into knowledge store
-    if fb.rating >= 4:
-        librarian.index_response(
-            content=fb.response,
-            title=f"Rated response: {fb.prompt[:60]}",
-            agent_id="training",
-            query=fb.prompt,
-            confidence=fb.rating / 5.0,
-        )
-
-    # Mark as processed
-    feedback.mark_indexed(fb.id)
+# Check overall feedback statistics
+feedback_stats = feedback.get_stats()
+# {"interactions": 142, "by_role": {...}, "feedback": {"total": 89, "indexed": 45, "unindexed": 44}}
 ```
 
-## Heuristic Extraction
+## Heuristic Discovery
 
-Discover patterns from interaction outcomes:
+`HeuristicPool` discovers patterns from recorded outcomes — what actions lead to success or failure:
 
 ```python
-from khonliang.training.heuristics import HeuristicExtractor
+from khonliang.training.heuristics import HeuristicPool
 
-extractor = HeuristicExtractor(feedback_store=feedback)
+pool = HeuristicPool(db_path="data/knowledge.db")
 
-# Find patterns in high-rated responses
-patterns = extractor.extract_positive_patterns(min_rating=4, min_count=5)
-# [
-#   {"pattern": "cites_tree_data", "frequency": 0.89, "avg_rating": 4.6},
-#   {"pattern": "mentions_uncertainty", "frequency": 0.72, "avg_rating": 4.3},
-# ]
+# Record outcomes as they happen
+pool.record_outcome(
+    action="cite_tree_data",
+    result="success",
+    context={"role": "researcher", "query_type": "person_lookup"},
+    source="feedback",
+)
 
-# Find patterns in low-rated responses
-anti_patterns = extractor.extract_negative_patterns(max_rating=2, min_count=3)
-# [
-#   {"pattern": "fabricated_details", "frequency": 0.65, "avg_rating": 1.8},
-#   {"pattern": "missing_sources", "frequency": 0.58, "avg_rating": 2.0},
-# ]
+# Extract heuristics from accumulated outcomes
+heuristics = pool.extract(min_samples=10, min_confidence=0.6)
+# [Heuristic(rule="cite_tree_data → success", confidence=0.89, sample_count=45), ...]
 
-# Route-level analysis — which roles perform best
-route_stats = extractor.analyze_by_route()
-# {"researcher": {"avg_rating": 4.1, "count": 89}, "narrator": {"avg_rating": 3.8, "count": 34}}
+# Get existing heuristics
+rules = pool.get_heuristics(min_confidence=0.5, limit=20)
+
+# Build context for LLM prompt injection
+prompt_ctx = pool.build_prompt_context(max_rules=5, min_confidence=0.5)
+# "Based on past interactions:\n- cite_tree_data → success (89%)\n- ..."
+
+# Decay old heuristic confidence over time
+decayed = pool.apply_decay()
 ```
 
 ## Feedback Loop Architecture
@@ -152,7 +147,7 @@ User Query
     → High rating: boost knowledge confidence
     → Low rating: flag for review
   → Training exporter collects rated examples
-  → Heuristic extractor finds success/failure patterns
+  → HeuristicPool discovers success/failure patterns
   → Patterns inform system prompt refinement
 ```
 

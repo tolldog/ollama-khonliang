@@ -10,8 +10,8 @@ Subclass `BaseRole` and implement `handle()`:
 from khonliang.roles.base import BaseRole
 
 class ResearcherRole(BaseRole):
-    def __init__(self, model_pool, tree):
-        super().__init__(role="researcher", model_pool=model_pool)
+    def __init__(self, model_pool, tree, **kwargs):
+        super().__init__(role="researcher", model_pool=model_pool, **kwargs)
         self.tree = tree
         self._system_prompt = (
             "You are a genealogy research assistant. Answer questions "
@@ -182,7 +182,7 @@ router.register_rule(is_fact_check, "fact_checker")
 
 ### Semantic Routing
 
-Uses FastEmbed cosine similarity for intent detection (requires `pip install khonliang[rag]`):
+Uses FastEmbed cosine similarity for intent detection (requires `pip install ollama-khonliang[rag]`):
 
 ```python
 from khonliang.routing.semantic import SemanticIntentRouter
@@ -295,6 +295,8 @@ print(f"Confidence: {result.confidence:.0%}, Issues: {len(result.issues)}")
 Subclass `EvalRule` for domain-specific checks:
 
 ```python
+import re
+
 from khonliang.roles.evaluator import EvalRule, EvalIssue
 
 class DateCheckRule(EvalRule):

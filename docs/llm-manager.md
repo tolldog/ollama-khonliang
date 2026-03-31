@@ -26,7 +26,7 @@ Two backend modes, same Python interface:
 
 ```python
 from khonliang.llm import LLMManager
-from khonliang.llm.protocol import GPUSlot
+from khonliang.llm.protocol import GPUSlot, InferenceRequest, QueueType
 
 manager = LLMManager(
     backend="internal",
@@ -150,17 +150,17 @@ response = await manager.generate(
 
 ## Pinned Models
 
-Pin frequently-used models to prevent eviction:
+Pin frequently-used models to prevent eviction. Pinned models are configured via model profiles:
 
 ```python
 manager = LLMManager(
     backend="internal",
     ollama_url="http://localhost:11434",
-    pinned_models=["llama3.2:3b"],  # Always loaded, never evicted
+    profiles_path="data/model_profiles.json",  # Profiles define which models are pinned
 )
 ```
 
-Pinned models are pre-loaded at startup. The scheduler heavily penalizes evicting them (0.01x swap factor).
+Pinned models are pre-loaded at startup. The scheduler heavily penalizes evicting them (0.01x swap factor). Configure pinning in your `model_profiles.json` by marking models with `"pinned": true`.
 
 ## Model Profiles
 
