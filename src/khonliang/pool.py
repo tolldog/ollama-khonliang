@@ -14,12 +14,17 @@ reuse a single client instance. Supports mixed backends via URI scheme:
     })
 """
 
+from __future__ import annotations
+
 import logging
 import time
 from collections import deque
-from typing import Any, Callable, Deque, Dict, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Deque, Dict, Optional, Tuple
 
 from khonliang.client import OllamaClient
+
+if TYPE_CHECKING:
+    from khonliang.protocols import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +95,7 @@ class ModelPool:
                 "api_key", "timeout", "model_timeouts".
         """
         self._map = {str(k): v for k, v in role_model_map.items()}
-        self._clients: Dict[str, Union[OllamaClient, Any]] = {}
+        self._clients: Dict[str, LLMClient] = {}
         self._base_url = base_url
         self._model_timeouts = model_timeouts
         self._backends = backends or {}
@@ -146,6 +151,11 @@ class ModelPool:
                 from khonliang.openai_client import OpenAIClient
 
                 cfg = self._backends[scheme]
+                if "base_url" not in cfg:
+                    raise ValueError(
+                        f"Backend '{scheme}' missing required 'base_url'. "
+                        f"Configure: backends={{'{scheme}': {{'base_url': '...'}}}}"
+                    )
                 logger.debug(f"Creating OpenAIClient for {role} -> {scheme}://{model}")
                 client = OpenAIClient(
                     model=model,

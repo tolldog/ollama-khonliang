@@ -6,12 +6,17 @@ runs locally. Uses asyncio queues and the ModelScheduler for
 score-based request ordering.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import time
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from khonliang.client import OllamaClient
+
+if TYPE_CHECKING:
+    from khonliang.protocols import LLMClient
 from khonliang.llm.protocol import (
     GPUSlot,
     InferenceRequest,
@@ -47,7 +52,7 @@ class InternalBackend:
         max_batch_size: int = 10,
         model_vram: Optional[Dict[str, int]] = None,
         pinned_models: Optional[list] = None,
-        client: Optional[Any] = None,
+        client: Optional[LLMClient] = None,
     ):
         self._ollama_url = ollama_url
         self._client = client or OllamaClient(base_url=ollama_url)

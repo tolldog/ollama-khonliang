@@ -16,13 +16,18 @@ Example — a customer support triage role:
             return {"response": response, "metadata": {"role": self.role}}
 """
 
+from __future__ import annotations
+
 import logging
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from khonliang.pool import ModelPool
+
+if TYPE_CHECKING:
+    from khonliang.protocols import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +74,7 @@ class BaseRole(ABC):
         self.board = board
 
     @property
-    def client(self):
+    def client(self) -> "LLMClient":
         """LLM client instance for this role's configured model.
 
         Returns an OllamaClient or OpenAIClient depending on the model

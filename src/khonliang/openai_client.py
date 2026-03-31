@@ -74,6 +74,8 @@ class OpenAIClient:
         self.timeout = timeout
         self._model_timeouts: Dict[str, int] = model_timeouts or {}
         self._session: Optional[aiohttp.ClientSession] = None
+        # keep_alive is accepted for LLMClient protocol compatibility but
+        # has no effect on OpenAI-compatible backends (Ollama-specific feature).
         self.default_keep_alive: Optional[str] = default_keep_alive
 
     def _get_timeout(self, model_name: str) -> int:
@@ -222,6 +224,11 @@ class OpenAIClient:
             raise LLMTimeoutError(
                 f"Request exceeded {timeout}s timeout", model=model_name
             ) from e
+        except aiohttp.ClientResponseError as e:
+            raise LLMUnavailableError(
+                f"HTTP {e.status} from {self.base_url}: {e.message}",
+                model=model_name,
+            ) from e
         except aiohttp.ClientError as e:
             raise LLMUnavailableError(
                 f"Failed to connect to {self.base_url}: {e}", model=model_name
@@ -337,6 +344,11 @@ class OpenAIClient:
         except asyncio.TimeoutError as e:
             raise LLMTimeoutError(
                 f"Stream exceeded {model_timeout}s timeout", model=model_name
+            ) from e
+        except aiohttp.ClientResponseError as e:
+            raise LLMUnavailableError(
+                f"HTTP {e.status} from {self.base_url}: {e.message}",
+                model=model_name,
             ) from e
         except aiohttp.ClientError as e:
             raise LLMUnavailableError(

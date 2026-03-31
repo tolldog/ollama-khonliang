@@ -8,7 +8,7 @@ issues before parsing.
 
 import json
 import re
-from typing import Dict
+from typing import Any, Dict, Union
 
 
 def clean_llm_json(text: str) -> str:
@@ -44,7 +44,7 @@ def clean_llm_json(text: str) -> str:
     return text
 
 
-def parse_llm_json(text: str) -> Dict:
+def parse_llm_json(text: str) -> Union[Dict[str, Any], list]:
     """Parse JSON from an LLM response, cleaning common issues.
 
     Tries raw parse first, falls back to cleanup if needed.
