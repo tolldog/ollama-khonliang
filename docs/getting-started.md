@@ -141,3 +141,6 @@ User Input
 | [Gateway & Agents](gateway-and-agents.md) | Message bus, blackboard, channels, activation              |
 | [Training & Feedback](training.md)        | Interaction logging, feedback, heuristic extraction        |
 | [Parsing](parsing.md)                     | Structured JSON extraction, query parsing                  |
+| [Multi-Backend Clients](multi-backend.md) | OpenAIClient, LLMClient protocol, mixed ModelPool          |
+| [Model Routing](model-routing.md)         | Cascade, complexity, and static model selection strategies |
+| [MCP Server](mcp-server.md)               | Expose khonliang to external LLMs via MCP                  |

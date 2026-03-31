@@ -1,14 +1,17 @@
 # ollama-khonliang
 
-_A llama rancher_ — multi-agent LLM orchestration framework for [Ollama](https://ollama.com).
+_A llama rancher_ — multi-agent LLM orchestration framework for [Ollama](https://ollama.com) and any OpenAI-compatible backend.
 
 **khonliang** (คนเลี้ยง) means "caretaker" or "keeper" in Thai — a rancher wrangling your herd of local LLMs.
 
 ## Features
 
-- **Async Ollama client** with typed errors, per-model timeouts, exponential backoff retry, and streaming
-- **Role-based agents** with abstract base class and model pool management
+- **Multi-backend LLM clients** — Ollama + OpenAI-compatible (vLLM, SGLang, Groq, Together, Fireworks, OpenRouter, Cerebras, LM Studio, llama.cpp, and more)
+- **LLMClient protocol** — runtime-checkable interface; swap backends without changing application code
+- **Role-based agents** with abstract base class and mixed-backend model pool
+- **Model routing** — cascade (FrugalGPT pattern), complexity classification, and static strategies for intelligent model selection within roles
 - **Message routing** — priority-ordered: callable rules, regex, keywords, semantic embedding similarity, fallback
+- **MCP server** — expose knowledge, triples, blackboard, and roles to external LLMs (Claude, GPT) via Model Context Protocol
 - **Multi-agent consensus** — weighted voting, VETO blocking, parallel agent orchestration with caching
 - **Personality system** — named agent personas with voting weights, focus areas, and @mention resolution
 - **Scoped RAG** — SQLite FTS5 retrieval with per-agent knowledge scopes (global, domain, conversational, expert)
@@ -37,6 +40,9 @@ _A llama rancher_ — multi-agent LLM orchestration framework for [Ollama](https
 | [Gateway & Agents](docs/gateway-and-agents.md) | Message bus, blackboard, channels, activation                   |
 | [Training & Feedback](docs/training.md)        | Interaction logging, feedback, heuristic extraction             |
 | [Parsing](docs/parsing.md)                     | Structured JSON extraction, query parsing                       |
+| [Multi-Backend Clients](docs/multi-backend.md) | OpenAIClient, LLMClient protocol, mixed ModelPool               |
+| [Model Routing](docs/model-routing.md)         | Cascade, complexity, and static model selection strategies      |
+| [MCP Server](docs/mcp-server.md)               | Expose khonliang to external LLMs via Model Context Protocol    |
 
 See the [genealogy example project](https://github.com/tolldog/khonliang-genealogy-example) for a full working application using most features.
 
@@ -51,11 +57,12 @@ pip install ollama-khonliang[rag]          # + semantic routing & embeddings
 pip install ollama-khonliang[mattermost]   # + Mattermost bot
 pip install ollama-khonliang[gateway]      # + Redis message bus
 pip install ollama-khonliang[discovery]    # + mDNS/zeroconf
+pip install ollama-khonliang[mcp]          # + MCP server for external LLMs
 pip install ollama-khonliang[all]          # Everything
 pip install ollama-khonliang[dev]          # Development tools
 ```
 
-Requires a running [Ollama](https://ollama.com) instance (default: `http://localhost:11434`).
+Requires a running [Ollama](https://ollama.com) instance (default: `http://localhost:11434`), or any OpenAI-compatible server (vLLM, SGLang, LM Studio, etc.).
 
 ## Quick Start
 
@@ -149,13 +156,15 @@ khonliang test tests.jsonl --router myapp.router:MyRouter
 ```text
 khonliang/
 ├── client.py          # Async Ollama client with retry & streaming
-├── pool.py            # Role → model mapping with connection reuse
+├── openai_client.py   # OpenAI-compatible client (vLLM, Groq, etc.)
+├── protocols.py       # LLMClient protocol for backend abstraction
+├── pool.py            # Role → model mapping with mixed backend support
 ├── health.py          # Model health tracking & cooldown
 ├── errors.py          # Typed error hierarchy
 ├── personalities.py   # Agent personality configs & registry
 ├── roles/             # Base role & message router
 ├── consensus/         # Multi-agent voting, team orchestration, adaptive weights
-├── routing/           # Flow classifier & semantic intent router
+├── routing/           # Flow classifier, semantic router, model router
 ├── parsing/           # Structured JSON extraction + LLM query parser
 ├── rag/               # Document retrieval (FTS5) with scoped access
 ├── knowledge/         # Three-tier store, librarian agent, ingestion pipeline
@@ -165,6 +174,7 @@ khonliang/
 ├── integrations/      # Mattermost bot, WebSocket chat server
 ├── training/          # Feedback collection & fine-tuning export
 ├── gateway/           # Redis Streams agent bus
+├── mcp/               # MCP server for external LLM integration
 ├── discovery/         # mDNS service discovery
 └── debate/            # Structured agent debate
 ```
@@ -173,11 +183,11 @@ khonliang/
 
 | Layer         | Module                                              | Description                                                     |
 | ------------- | --------------------------------------------------- | --------------------------------------------------------------- |
-| Connection    | `client`, `pool`, `health`, `errors`                | Async Ollama client, model pool, health tracking                |
-| Roles         | `roles.base`, `roles.router`                        | Abstract role base class, priority-ordered message router       |
+| Connection    | `client`, `openai_client`, `protocols`, `pool`      | Ollama + OpenAI clients, LLMClient protocol, mixed pool         |
+| Roles         | `roles.base`, `roles.router`, `roles.evaluator`     | Abstract role base class, routing, self-evaluation              |
 | Personalities | `personalities`                                     | Named personas with voting weights and @mention resolution      |
 | Consensus     | `consensus.models`, `engine`, `team`, `weights`     | Weighted voting, VETO, parallel orchestration, adaptive weights |
-| Routing       | `routing.flow`, `routing.semantic`                  | LLM flow classification, embedding-based intent routing         |
+| Routing       | `routing.flow`, `semantic`, `model_router`          | Flow classification, semantic routing, model selection          |
 | Parsing       | `parsing.structured`, `parsing.query_parser`        | Typed JSON extraction, schema-driven LLM query parsing          |
 | RAG           | `rag.retriever`, `rag.scoped`                       | FTS5 search, agent-scoped knowledge retrieval                   |
 | Knowledge     | `knowledge.store`, `librarian`, `ingestion`         | Three-tier RAG (axiom/imported/derived), librarian agent        |
@@ -189,6 +199,7 @@ khonliang/
 | Gateway       | `gateway.gateway`, `messages`, `sessions`           | Redis Streams message bus, agent messaging                      |
 | Discovery     | `discovery.mdns`                                    | mDNS service advertising via zeroconf                           |
 | Debate        | `debate.orchestrator`                               | Structured agent disagreement resolution                        |
+| MCP           | `mcp.server`, `mcp.__main__`                        | MCP server exposing knowledge/roles to external LLMs            |
 
 ## License
 
