@@ -17,6 +17,7 @@
   - Transports: stdio (Claude Code) and streamable HTTP
 - Shared JSON cleanup utilities extracted to `_json_utils.py` (#47)
 - Comprehensive documentation: 12 guides covering all features (#46, #50)
+- Project logo and circle icon in `assets/`
 
 ### Changed
 

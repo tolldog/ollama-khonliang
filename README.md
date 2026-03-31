@@ -1,5 +1,7 @@
 # ollama-khonliang
 
+![khonliang](assets/khonliang_logo.png)
+
 _A llama rancher_ — multi-agent LLM orchestration framework for [Ollama](https://ollama.com) and any OpenAI-compatible backend.
 
 **khonliang** (คนเลี้ยง) means "caretaker" or "keeper" in Thai — a rancher wrangling your herd of local LLMs.
