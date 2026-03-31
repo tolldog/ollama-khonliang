@@ -65,11 +65,16 @@ The library is layered:
 - `integrations/mattermost.py` — `MattermostBot` connects via WebSocket, registers `on_mention` / `on_direct_message` handlers.
 - `agents/registry.py` — `ConfigRegistry[T]` — generic typed JSON-backed config persistence; requires `T` to have `to_dict()` and `from_dict()`.
 
-**Planned modules:**
+**Additional modules:**
 
-- `gateway/` — Redis Streams agent message bus for distributed communication.
-- `debate/` — Structured agent debate/challenge orchestration.
-- `discovery/` — mDNS service advertising and discovery via zeroconf.
+- `gateway/` — Redis Streams agent message bus for distributed communication. Includes `Blackboard` (shared in-memory key-value store with TTL for multi-agent coordination), `GatewaySession` management, and `Observer` pattern for event routing.
+- `debate/` — `DebateOrchestrator` runs structured multi-agent debates with challenge/response rounds and scoring.
+- `discovery/` — mDNS service advertising and discovery via zeroconf for distributed agent networks.
+- `knowledge/` — Three-tier knowledge management: `KnowledgeStore` (SQLite-backed with confidence scoring), `Librarian` agent (axiom/imported/derived tiers), `TripleStore` (semantic subject-predicate-object triples), `ReportBuilder` for accumulated knowledge reports.
+- `research/` — `ResearchPool` with `BaseEngine` protocol, `CompositeResearcher` for parallel multi-source search, `ResearchTrigger` for implicit research from chat, `HTTPEngine` for external API adapters.
+- `llm/` — `LLMManager` with pluggable backends (`InternalBackend` using asyncio queues, future gRPC external backend), `ModelScheduler` (score-based VRAM-aware scheduling), `ModelProfile` for per-model preferences, `ModelBenchmark` for performance validation.
+- `training/` — `FeedbackCollector` for RLHF-style data collection, `TrainingExporter` for fine-tuning dataset preparation, `HeuristicExtractor` for outcome-based pattern discovery.
+- `parsing/query_parser.py` — `QueryParser` uses LLM-backed structured extraction to convert natural language queries into typed filter parameters.
 
 **Public API** (from `khonliang/__init__.py`): `OllamaClient`, `GenerationResult`, `ModelPool`, `ModelHealthTracker`, `BaseRole`, `BaseRouter`, `PersonalityConfig`, `PersonalityRegistry`, and all error types. All other modules must be imported directly.
 
