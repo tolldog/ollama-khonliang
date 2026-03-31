@@ -33,13 +33,17 @@ from khonliang.errors import (
 )
 from khonliang.gateway.blackboard import Blackboard
 from khonliang.health import ModelHealthTracker
+from khonliang.openai_client import OpenAIClient
 from khonliang.personalities import PersonalityConfig, PersonalityRegistry
 from khonliang.pool import ModelPool
+from khonliang.protocols import LLMClient
 from khonliang.roles import BaseRole, BaseRouter
 
 __all__ = [
     # Connection layer
     "OllamaClient",
+    "OpenAIClient",
+    "LLMClient",
     "GenerationResult",
     "ModelPool",
     "ModelHealthTracker",

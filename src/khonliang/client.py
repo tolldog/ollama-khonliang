@@ -302,33 +302,9 @@ class OllamaClient:
         return self._parse_json(response)
 
     def _parse_json(self, response: str) -> Dict:
-        import re
+        from khonliang._json_utils import parse_llm_json
 
-        text = response.strip()
-        for fence in ("```json", "```"):
-            if text.startswith(fence):
-                text = text[len(fence):]
-        if text.endswith("```"):
-            text = text[:-3]
-        text = text.strip()
-
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            # Strip leading/trailing non-JSON content
-            first = min(
-                (text.find(c) for c in "{[" if text.find(c) >= 0), default=0
-            )
-            last = max(text.rfind("}"), text.rfind("]"))
-            text = text[first : last + 1] if last >= 0 else text
-            text = re.sub(r",\s*([}\]])", r"\1", text)
-            text = re.sub(r"\bTrue\b", "true", text)
-            text = re.sub(r"\bFalse\b", "false", text)
-            text = re.sub(r"\bNone\b", "null", text)
-            try:
-                return json.loads(text)
-            except json.JSONDecodeError as e:
-                raise ValueError(f"Invalid JSON response from LLM: {e}") from e
+        return parse_llm_json(response)
 
     async def stream_generate(
         self,
