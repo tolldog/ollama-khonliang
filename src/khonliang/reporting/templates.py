@@ -176,7 +176,7 @@ class ReportTheme:
   }}
   .nav {{ margin-bottom: 1.5rem; }}
   .nav a {{ color: var(--primary); text-decoration: none; font-size: 0.9rem; }}
-  {self.custom_css.replace('</style', '&lt;/style')}
+  {re.sub(r'</style', '&lt;/style', self.custom_css, flags=re.IGNORECASE)}
 </style>"""
 
 
@@ -186,13 +186,25 @@ def _format_time(ts: Optional[float]) -> str:
     return time.strftime("%Y-%m-%d %H:%M", time.localtime(ts))
 
 
+_nh3_warned = False
+
+
 def _sanitize_html(html: str) -> str:
     """Sanitize HTML using nh3 (Rust-backed). Falls back to no-op if not installed."""
+    global _nh3_warned
     try:
         import nh3
 
         return nh3.clean(html)
     except ImportError:
+        if not _nh3_warned:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "nh3 not installed — HTML sanitization disabled. "
+                "Install with: pip install ollama-khonliang[reporting]"
+            )
+            _nh3_warned = True
         return html
 
 

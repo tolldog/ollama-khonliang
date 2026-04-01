@@ -418,3 +418,64 @@ class TestReportTheme:
         html = render_report(report, theme)
         assert "/img/logo.svg" in html
         assert "Logo Test" in html
+
+
+# ---------------------------------------------------------------------------
+# Security
+# ---------------------------------------------------------------------------
+
+class TestSecurity:
+    def test_script_stripped_from_markdown(self):
+        from khonliang.reporting.templates import render_report
+
+        theme = ReportTheme()
+        report = Report(
+            id="x", report_type="t", title="T",
+            content_markdown='<script>alert(1)</script><p>safe</p>',
+            created_at=time.time(),
+        )
+        html = render_report(report, theme)
+        assert "<script>" not in html
+        assert "alert(1)" not in html
+        assert "safe" in html
+
+    def test_event_handler_stripped(self):
+        from khonliang.reporting.templates import render_report
+
+        theme = ReportTheme()
+        report = Report(
+            id="x", report_type="t", title="T",
+            content_markdown='<img src="x" onerror="alert(1)">',
+            created_at=time.time(),
+        )
+        html = render_report(report, theme)
+        assert "onerror" not in html
+
+    def test_title_xss_escaped(self):
+        from khonliang.reporting.templates import render_report
+
+        theme = ReportTheme()
+        report = Report(
+            id="x", report_type="t", title='<script>alert("xss")</script>',
+            content_markdown="safe", created_at=time.time(),
+        )
+        html = render_report(report, theme)
+        assert "<script>" not in html.split('<div class="content">')[0]
+
+    def test_custom_css_style_breakout_blocked(self):
+        theme = ReportTheme(custom_css='</STYLE><script>alert(1)</script>')
+        css = theme.render_css()
+        assert "</STYLE>" not in css
+        assert "</style>" not in css.lower().replace("</style>", "")  # only the closing tag
+
+    def test_javascript_permalink_blocked(self):
+        from khonliang.reporting.templates import render_report
+
+        theme = ReportTheme()
+        report = Report(
+            id="x", report_type="t", title="T",
+            content_markdown="C", created_at=time.time(),
+            chat_context={"permalink": "javascript:alert(1)"},
+        )
+        html = render_report(report, theme)
+        assert "javascript:" not in html
