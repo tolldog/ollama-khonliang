@@ -176,7 +176,7 @@ class ReportTheme:
   }}
   .nav {{ margin-bottom: 1.5rem; }}
   .nav a {{ color: var(--primary); text-decoration: none; font-size: 0.9rem; }}
-  {self.custom_css}
+  {self.custom_css.replace('</style', '&lt;/style')}
 </style>"""
 
 
@@ -186,17 +186,28 @@ def _format_time(ts: Optional[float]) -> str:
     return time.strftime("%Y-%m-%d %H:%M", time.localtime(ts))
 
 
+def _sanitize_html(html: str) -> str:
+    """Sanitize HTML using nh3 (Rust-backed). Falls back to no-op if not installed."""
+    try:
+        import nh3
+
+        return nh3.clean(html)
+    except ImportError:
+        return html
+
+
 def _render_markdown(md: str) -> str:
     """
     Convert markdown to HTML.
 
     Uses the `markdown` library if available (with tables and fenced_code),
-    otherwise a simple regex fallback.
+    otherwise a simple regex fallback. Output is sanitized to strip
+    script tags, event handlers, and javascript: URLs.
     """
     try:
         import markdown
 
-        return markdown.markdown(md, extensions=["tables", "fenced_code"])
+        return _sanitize_html(markdown.markdown(md, extensions=["tables", "fenced_code"]))
     except ImportError:
         pass
 
@@ -232,14 +243,14 @@ def _render_markdown(md: str) -> str:
             result.append(line)
     if in_list:
         result.append("</ul>")
-    return "\n".join(result)
+    return _sanitize_html("\n".join(result))
 
 
 def _safe_url(url: str) -> str:
     """Validate a URL for safe use in href/src attributes."""
-    if url and url.split(":")[0].lower() in ("http", "https", "/"):
-        return html_escape(url, quote=True)
     if url and url.startswith("/"):
+        return html_escape(url, quote=True)
+    if url and url.split(":")[0].lower() in ("http", "https"):
         return html_escape(url, quote=True)
     return ""
 

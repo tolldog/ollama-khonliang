@@ -37,7 +37,7 @@ mattermost = ["websocket-client>=1.7"]
 gateway = ["redis>=5.0"]
 discovery = ["zeroconf>=0.131"]
 mcp = ["mcp>=1.26"]
-reporting = ["flask>=3.0", "markdown>=3.5"]
+reporting = ["flask>=3.0", "markdown>=3.5", "nh3>=0.2"]
 all = [
   "fastembed>=0.2",
   "semantic-router>=0.0.47",
@@ -47,6 +47,7 @@ all = [
   "mcp>=1.26",
   "flask>=3.0",
   "markdown>=3.5",
+  "nh3>=0.2",
 ]
 dev = [
   "pytest>=7.0",
