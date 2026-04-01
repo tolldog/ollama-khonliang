@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.4.0] - 2026-03-31
+
+### Added
+
+- **Reporting module** — agent report persistence and HTTP serving pipeline (#51)
+  - `ReportManager` — SQLite CRUD with metadata, view tracking, TTL-based expiration
+  - `ReportDetector` — pluggable heuristics (length, structure, keywords, custom criteria) for detecting report-worthy content
+  - `ReportServer` — Flask app serving reports as styled HTML with JSON API endpoints
+  - `ReportTheme` — CSS variable-based theming with logo, colors, fonts, footer, custom CSS; loadable from JSON config
+  - HTML sanitization via `nh3` (Rust-backed) to prevent XSS in rendered reports
+  - Static file serving for logos and assets
+  - Chat context support for bi-directional linkback to chat integrations (e.g. Mattermost permalink)
+- **Digest module** — activity accumulation and narrative synthesis (#51)
+  - `DigestStore` — SQLite-backed transaction log with `audience` field for separate digest streams
+  - `DigestSynthesizer` — LLM-backed narrative generation with configurable `DigestConfig` prompts and structured fallback
+  - `DigestConfig` — per-application synthesis prompt, title template, grouping, and entry limit configuration
+  - Middleware: `extract_from_response()` reads `digest`/`digest_audience` from response metadata
+  - Middleware: `digest_blackboard()` hooks Blackboard posts to auto-record digest entries
+  - Middleware: `digest_consensus()` hooks consensus results into the digest stream
+- **`[reporting]` optional dependency** — `flask>=3.0`, `markdown>=3.5`, `nh3>=0.2`
+- **SECURITY.md** — vulnerability reporting policy and security documentation
+- **CONTRIBUTING.md** — development workflow, code style, testing, PR process
+- **CODE_OF_CONDUCT.md** — Contributor Covenant v2.1
+- **GitHub templates** — bug report, feature request, PR template, dependabot config
+
+### Changed
+
+- CI installs `[reporting]` extras for security test coverage
+
 ## [0.3.0] - 2026-03-31
 
 ### Added

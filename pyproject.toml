@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ollama-khonliang"
-version = "0.1.0"
+version = "0.4.0"
 description = "A llama rancher — multi-agent LLM orchestration framework for Ollama"
 readme = "README.md"
 license = { text = "MIT" }
@@ -61,7 +61,10 @@ dev = [
 khonliang = "khonliang.cli:main"
 
 [project.urls]
+Homepage = "https://github.com/tolldog/ollama-khonliang"
 Repository = "https://github.com/tolldog/ollama-khonliang"
+Documentation = "https://github.com/tolldog/ollama-khonliang/tree/main/docs"
+Issues = "https://github.com/tolldog/ollama-khonliang/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
