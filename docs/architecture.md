@@ -208,12 +208,12 @@ Higher-level features built on the layers above.
 
 Bridges to external systems.
 
-| Module                        | Purpose                                                                                                                                    |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `mcp/`                        | `KhonliangMCPServer` — exposes 11 tools and 3 resources to external LLMs via Model Context Protocol. Transports: stdio and streamable HTTP |
-| `integrations/mattermost`     | `MattermostBot` — WebSocket connection with `on_mention` / `on_direct_message` handlers                                                    |
-| `integrations/websocket_chat` | `ChatServer` — WebSocket chat with session tracking, role routing, and knowledge indexing                                                  |
-| `discovery/`                  | `ServiceAdvertiser` — mDNS service advertising and discovery via zeroconf                                                                  |
+| Module                        | Purpose                                                                                                                                                                                                 |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mcp/`                        | `KhonliangMCPServer` — exposes up to 11 tools and 3 resources to external LLMs via Model Context Protocol. Actual count depends on which components are provided. Transports: stdio and streamable HTTP |
+| `integrations/mattermost`     | `MattermostBot` — WebSocket connection with `on_mention` / `on_direct_message` handlers                                                                                                                 |
+| `integrations/websocket_chat` | `ChatServer` — WebSocket chat with session tracking, role routing, and knowledge indexing                                                                                                               |
+| `discovery/`                  | `ServiceAdvertiser` — mDNS service advertising and discovery via zeroconf                                                                                                                               |
 
 ## Data Flow
 
@@ -262,7 +262,7 @@ A typical message flows through:
 
 ## Storage Pattern
 
-All persistent stores use SQLite with WAL mode:
+All persistent stores use SQLite. `ReportManager` and `DigestStore` enable WAL mode explicitly; other stores use SQLite defaults:
 
 | Store               | Database     | Purpose                               |
 | ------------------- | ------------ | ------------------------------------- |
