@@ -8,7 +8,6 @@ from khonliang.reporting.detector import ReportDetector
 from khonliang.reporting.manager import Report, ReportManager
 from khonliang.reporting.templates import ReportTheme
 
-
 # ---------------------------------------------------------------------------
 # ReportManager
 # ---------------------------------------------------------------------------

@@ -70,6 +70,16 @@ def create_app(
     if static_dir:
         app.config["REPORT_STATIC_DIR"] = static_dir
 
+    def _parse_limit(default: int = 50, maximum: int = 500) -> int:
+        """Parse and clamp the 'limit' query parameter."""
+        raw = request.args.get("limit")
+        if raw is None or raw == "":
+            return default
+        try:
+            return min(max(int(raw), 1), maximum)
+        except ValueError:
+            return default
+
     @app.route("/static/<path:filename>")
     def static_file(filename):
         """Serve static files (logos, CSS, etc.) from the configured directory."""
@@ -89,7 +99,7 @@ def create_app(
     def report_list():
         report_type = request.args.get("type")
         created_by = request.args.get("by")
-        limit = int(request.args.get("limit", 50))
+        limit = _parse_limit()
 
         reports = manager.list_reports(
             report_type=report_type, created_by=created_by, limit=limit
@@ -117,7 +127,7 @@ def create_app(
     def api_report_list():
         report_type = request.args.get("type")
         created_by = request.args.get("by")
-        limit = int(request.args.get("limit", 50))
+        limit = _parse_limit()
 
         reports = manager.list_reports(
             report_type=report_type, created_by=created_by, limit=limit

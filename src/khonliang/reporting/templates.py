@@ -25,8 +25,10 @@ Usage:
 """
 
 import json
+import re
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from html import escape as html_escape
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -122,7 +124,10 @@ class ReportTheme:
     background: var(--card-bg); border-radius: 8px; padding: 2rem;
     box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 1.5rem;
   }}
-  .header {{ border-bottom: 2px solid var(--primary); padding-bottom: 1rem; margin-bottom: 1.5rem; }}
+  .header {{
+    border-bottom: 2px solid var(--primary);
+    padding-bottom: 1rem; margin-bottom: 1.5rem;
+  }}
   .header h1 {{ color: var(--primary); font-size: 1.5rem; }}
   .header-brand {{
     display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;
@@ -195,8 +200,6 @@ def _render_markdown(md: str) -> str:
     except ImportError:
         pass
 
-    import re
-
     html = md
     html = re.sub(
         r"```(\w*)\n(.*?)```", r"<pre><code>\2</code></pre>",
@@ -211,47 +214,78 @@ def _render_markdown(md: str) -> str:
     html = re.sub(r"^[\s]*[-*+]\s+(.+)$", r"<li>\1</li>", html, flags=re.MULTILINE)
     lines = html.split("\n")
     result = []
+    in_list = False
     for line in lines:
         stripped = line.strip()
+        if stripped.startswith("<li>") and stripped.endswith("</li>"):
+            if not in_list:
+                result.append("<ul>")
+                in_list = True
+            result.append(stripped)
+            continue
+        if in_list:
+            result.append("</ul>")
+            in_list = False
         if stripped and not stripped.startswith("<"):
             result.append(f"<p>{stripped}</p>")
         else:
             result.append(line)
+    if in_list:
+        result.append("</ul>")
     return "\n".join(result)
+
+
+def _safe_url(url: str) -> str:
+    """Validate a URL for safe use in href/src attributes."""
+    if url and url.split(":")[0].lower() in ("http", "https", "/"):
+        return html_escape(url, quote=True)
+    if url and url.startswith("/"):
+        return html_escape(url, quote=True)
+    return ""
 
 
 def render_report(report: Report, theme: ReportTheme, base_url: str = "") -> str:
     """Render a single report as a full HTML page."""
     content_html = _render_markdown(report.content_markdown)
 
+    # Escape all user-controlled fields
+    title = html_escape(report.title)
+    report_type = html_escape(report.report_type)
+    created_by = html_escape(report.created_by or "unknown")
+    theme_name = html_escape(theme.name)
+    footer_text = html_escape(theme.footer_text) if theme.footer_text else ""
+
     chat_link = ""
-    permalink = report.chat_context.get("permalink")
-    if permalink:
+    permalink = report.chat_context.get("permalink", "")
+    safe_permalink = _safe_url(permalink)
+    if safe_permalink:
         chat_link = (
-            f'<a class="chat-link" href="{permalink}">'
+            f'<a class="chat-link" href="{safe_permalink}">'
             "View Original Conversation</a>"
         )
 
     logo_html = ""
     if theme.logo_url:
-        logo_html = f'<img src="{theme.logo_url}" alt="{theme.name}">'
+        safe_logo = _safe_url(theme.logo_url)
+        if safe_logo:
+            logo_html = f'<img src="{safe_logo}" alt="{theme_name}">'
 
     brand_html = ""
     if theme.logo_url or theme.name != "Agent Reports":
         brand_html = f"""
     <div class="header-brand">
       {logo_html}
-      <span class="brand-name">{theme.name}</span>
+      <span class="brand-name">{theme_name}</span>
     </div>"""
 
-    footer_extra = f"<br>{theme.footer_text}" if theme.footer_text else ""
+    footer_extra = f"<br>{footer_text}" if footer_text else ""
 
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{report.title} — {theme.name}</title>
+  <title>{title} — {theme_name}</title>
   {theme.render_css()}
 </head>
 <body>
@@ -260,11 +294,11 @@ def render_report(report: Report, theme: ReportTheme, base_url: str = "") -> str
     <div class="card">
       <div class="header">
         {brand_html}
-        <h1>{report.title}</h1>
+        <h1>{title}</h1>
         <div class="meta">
-          <span class="badge">{report.report_type}</span>
+          <span class="badge">{report_type}</span>
           <span>Created: {_format_time(report.created_at)}</span>
-          <span>By: {report.created_by or "unknown"}</span>
+          <span>By: {created_by}</span>
           <span>Views: {report.view_count}</span>
         </div>
         {chat_link}
@@ -272,7 +306,7 @@ def render_report(report: Report, theme: ReportTheme, base_url: str = "") -> str
       <div class="content">{content_html}</div>
     </div>
     <div class="footer">
-      Report ID: {report.id}
+      Report ID: {html_escape(report.id)}
       {' | Last viewed: ' + _format_time(report.last_viewed_at) if report.last_viewed_at else ''}
       {footer_extra}
     </div>
@@ -285,14 +319,18 @@ def render_report_list(reports, theme: ReportTheme, base_url: str = "") -> str:
     """Render a list of reports as an HTML page."""
     items = []
     for r in reports:
+        r_id = html_escape(r.id)
+        r_type = html_escape(r.report_type)
+        r_title = html_escape(r.title)
+        r_by = html_escape(r.created_by or "unknown")
         items.append(f"""
-    <a href="{base_url}/reports/{r.id}">
+    <a href="{base_url}/reports/{r_id}">
       <div class="card">
-        <span class="badge">{r.report_type}</span>
-        <strong>{r.title}</strong>
+        <span class="badge">{r_type}</span>
+        <strong>{r_title}</strong>
         <div class="meta">
           <span>{_format_time(r.created_at)}</span>
-          <span>By: {r.created_by or "unknown"}</span>
+          <span>By: {r_by}</span>
           <span>Views: {r.view_count}</span>
         </div>
       </div>
@@ -300,16 +338,22 @@ def render_report_list(reports, theme: ReportTheme, base_url: str = "") -> str:
 
     report_items = "\n".join(items) if items else "<p>No reports yet.</p>"
 
+    theme_name = html_escape(theme.name)
     logo_html = ""
     if theme.logo_url:
-        logo_html = f'<img src="{theme.logo_url}" alt="{theme.name}" style="height: {theme.logo_height}; margin-right: 0.75rem;">'
+        safe_logo = _safe_url(theme.logo_url)
+        if safe_logo:
+            logo_html = (
+                f'<img src="{safe_logo}" alt="{theme_name}" '
+                f'style="height: {theme.logo_height}; margin-right: 0.75rem;">'
+            )
 
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{theme.name}</title>
+  <title>{theme_name}</title>
   {theme.render_css()}
 </head>
 <body>
@@ -317,7 +361,7 @@ def render_report_list(reports, theme: ReportTheme, base_url: str = "") -> str:
     <div class="card header">
       <div style="display: flex; align-items: center;">
         {logo_html}
-        <h1>{theme.name}</h1>
+        <h1>{theme_name}</h1>
       </div>
     </div>
     <div class="report-list">

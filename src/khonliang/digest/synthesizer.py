@@ -25,7 +25,7 @@ Usage:
 import logging
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from khonliang.digest.store import DigestEntry, DigestStore

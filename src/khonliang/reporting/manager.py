@@ -31,7 +31,6 @@ import sqlite3
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -84,7 +83,7 @@ class Report:
     def is_expired(self) -> bool:
         if self.expires_at is None:
             return False
-        return time.time() > self.expires_at
+        return time.time() >= self.expires_at
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -126,7 +125,7 @@ class ReportManager:
         if default_ttl_overrides:
             self._ttl_map.update(default_ttl_overrides)
 
-        self._conn = sqlite3.connect(db_path)
+        self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.executescript(_SCHEMA)

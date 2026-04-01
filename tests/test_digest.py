@@ -1,6 +1,5 @@
 """Tests for the digest module — store, synthesizer, and middleware."""
 
-import asyncio
 import time
 from unittest.mock import AsyncMock, MagicMock
 
@@ -17,7 +16,6 @@ from khonliang.digest.synthesizer import (
     DigestSynthesizer,
     format_entries,
 )
-
 
 # ---------------------------------------------------------------------------
 # DigestStore
