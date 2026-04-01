@@ -13,7 +13,7 @@ If you discover a security vulnerability in khonliang, please report it responsi
 
 **Do not open a public GitHub issue for security vulnerabilities.**
 
-Instead, please email: **<security@tolldog.com>**
+Instead, please email: **<tolldog@gmail.com>**
 
 Include:
 
