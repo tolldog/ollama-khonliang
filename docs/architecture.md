@@ -4,121 +4,165 @@ khonliang is organized as a layered framework where each layer builds on the one
 
 ## Layer Diagram
 
-```dot
-digraph khonliang {
-    rankdir=TB
-    node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11]
-    edge [color="#666666"]
+```mermaid
+flowchart TB
+    subgraph Foundation["Foundation"]
+        Errors["errors"]
+        Protocols["protocols\n(LLMClient)"]
+        JsonUtils["_json_utils"]
+    end
 
-    subgraph cluster_foundation {
-        label="Foundation"
-        style=filled; color="#f0f0f0"
-        errors [label="errors", fillcolor="#e8f5e9"]
-        protocols [label="protocols\n(LLMClient)", fillcolor="#e8f5e9"]
-        json_utils [label="_json_utils", fillcolor="#e8f5e9"]
-    }
+    subgraph Connection["Connection Layer"]
+        Ollama["OllamaClient"]
+        OpenAI["OpenAIClient"]
+        Health["ModelHealthTracker"]
+    end
 
-    subgraph cluster_connection {
-        label="Connection Layer"
-        style=filled; color="#e8eaf6"
-        ollama [label="OllamaClient", fillcolor="#c5cae9"]
-        openai [label="OpenAIClient", fillcolor="#c5cae9"]
-        health [label="ModelHealthTracker", fillcolor="#c5cae9"]
-    }
+    subgraph Management["Management Layer"]
+        Pool["ModelPool"]
+        FlowR["routing/flow"]
+        Semantic["routing/semantic"]
+        ModelR["routing/model_router"]
+    end
 
-    subgraph cluster_management {
-        label="Management Layer"
-        style=filled; color="#fff3e0"
-        pool [label="ModelPool", fillcolor="#ffe0b2"]
-        routing [label="routing/\nflow, semantic,\nmodel_router", fillcolor="#ffe0b2"]
-    }
+    subgraph AgentLayer["Agent & Role Layer"]
+        BaseRole["BaseRole"]
+        BaseRouter["BaseRouter\n(5-stage)"]
+        Evaluator["BaseEvaluator"]
+        Session["SessionContext"]
+        Personalities["PersonalityRegistry"]
+    end
 
-    subgraph cluster_agents {
-        label="Agent & Role Layer"
-        style=filled; color="#fce4ec"
-        roles [label="roles/\nBaseRole, BaseRouter,\nEvaluator, Session", fillcolor="#f8bbd0"]
-        agents [label="agents/\ncapabilities,\nchannels, registry", fillcolor="#f8bbd0"]
-        personalities [label="personalities", fillcolor="#f8bbd0"]
-    }
+    subgraph Coordination["Coordination Layer"]
+        Gateway["AgentGateway\n(Redis Streams)"]
+        Blackboard["Blackboard\n(in-memory K-V)"]
+        Consensus["ConsensusEngine\n+ AgentTeam"]
+        Debate["DebateOrchestrator"]
+    end
 
-    subgraph cluster_coordination {
-        label="Coordination Layer"
-        style=filled; color="#e0f7fa"
-        gateway [label="gateway/\nAgentGateway\n(Redis Streams)", fillcolor="#b2ebf2"]
-        blackboard [label="Blackboard\n(in-memory K-V)", fillcolor="#b2ebf2"]
-        consensus [label="consensus/\nAgentTeam,\nConsensusEngine", fillcolor="#b2ebf2"]
-        debate [label="debate/\nDebateOrchestrator", fillcolor="#b2ebf2"]
-    }
+    subgraph Knowledge["Knowledge & Retrieval"]
+        KStore["KnowledgeStore\n(3-tier)"]
+        Triples["TripleStore"]
+        Librarian["Librarian"]
+        RAG["DocumentRetriever\n+ ScopedRetriever"]
+    end
 
-    subgraph cluster_knowledge {
-        label="Knowledge & Retrieval"
-        style=filled; color="#f3e5f5"
-        knowledge [label="knowledge/\nKnowledgeStore,\nTripleStore, Librarian", fillcolor="#e1bee7"]
-        rag [label="rag/\nDocumentRetriever,\nScopedRetriever", fillcolor="#e1bee7"]
-    }
+    subgraph Features["Feature Modules"]
+        Reporting["reporting/\nReportManager\nReportServer"]
+        Digest["digest/\nDigestStore\nDigestSynthesizer"]
+        Research["research/\nResearchPool\nCompositeResearcher"]
+        Training["training/\nFeedbackStore\nHeuristicPool"]
+        Parsing["parsing/\nStructuredBlock\nQueryParser"]
+        LLM["llm/\nLLMManager\nModelScheduler"]
+    end
 
-    subgraph cluster_features {
-        label="Feature Modules"
-        style=filled; color="#fff9c4"
-        reporting [label="reporting/\nReportManager,\nReportServer", fillcolor="#fff176"]
-        digest [label="digest/\nDigestStore,\nDigestSynthesizer", fillcolor="#fff176"]
-        research [label="research/\nResearchPool,\nCompositeResearcher", fillcolor="#fff176"]
-        training [label="training/\nFeedbackStore,\nHeuristicPool", fillcolor="#fff176"]
-        parsing [label="parsing/\nStructuredBlock,\nQueryParser", fillcolor="#fff176"]
-        llm [label="llm/\nLLMManager,\nModelScheduler", fillcolor="#fff176"]
-    }
+    subgraph Integration["Integration Layer"]
+        MCP["MCP Server"]
+        Mattermost["Mattermost Bot"]
+        WSChat["WebSocket ChatServer"]
+        Discovery["mDNS Discovery"]
+    end
 
-    subgraph cluster_integration {
-        label="Integration Layer"
-        style=filled; color="#efebe9"
-        mcp [label="MCP Server\n(11 tools)", fillcolor="#d7ccc8"]
-        mattermost [label="Mattermost\nBot", fillcolor="#d7ccc8"]
-        websocket [label="WebSocket\nChatServer", fillcolor="#d7ccc8"]
-        discovery [label="mDNS\nDiscovery", fillcolor="#d7ccc8"]
-    }
+    Foundation --> Connection
+    Connection --> Management
+    Management --> AgentLayer
+    AgentLayer --> Coordination
+    Coordination --> Knowledge
+    Knowledge --> Features
+    Features --> Integration
 
-    // Foundation -> Connection
-    errors -> ollama
-    errors -> openai
-    protocols -> ollama
-    protocols -> openai
-    json_utils -> openai
+    Blackboard -.->|context| BaseRole
+    RAG -.->|context| BaseRole
+    Digest -.->|middleware| Blackboard
+    Digest -.->|middleware| Consensus
+```
 
-    // Connection -> Management
-    ollama -> pool
-    openai -> pool
-    health -> routing
+## Request Flow
 
-    // Management -> Agents
-    pool -> roles
-    routing -> roles
+```mermaid
+flowchart TD
+    Msg["User Message"]
 
-    // Agents -> Coordination
-    roles -> consensus
-    agents -> gateway
-    roles -> debate
+    Msg --> Router["BaseRouter\n(5-stage routing)"]
+    Router -->|"callable → regex → keyword\n→ semantic → fallback"| Role["BaseRole.handle()"]
+    Role --> Context["build_context()\nRAG + Blackboard + Knowledge"]
+    Context --> LLMCall["LLMClient.generate()"]
+    LLMCall --> Response["Response"]
 
-    // Coordination -> Knowledge
-    blackboard -> roles
-    consensus -> knowledge
-    gateway -> debate
+    Response -.->|"metadata.digest"| DigestS["DigestStore.record()"]
+    Response -.->|"if report-worthy"| ReportS["ReportManager.create()"]
+    Response -.->|"log interaction"| FeedbackS["FeedbackStore"]
 
-    // Knowledge used by features
-    knowledge -> research
-    knowledge -> reporting
-    rag -> roles
+    Msg -->|"high-stakes query"| Team["AgentTeam\n(parallel agents)"]
+    Team --> CE["ConsensusEngine\n(weighted votes)"]
+    CE -->|"disagreement"| DO["DebateOrchestrator"]
+    CE --> Response
+```
 
-    // Features use coordination
-    digest -> blackboard [style=dashed, label="middleware"]
-    digest -> consensus [style=dashed, label="middleware"]
+## Model Routing
 
-    // Integration layer
-    knowledge -> mcp
-    roles -> mcp
-    blackboard -> mcp
-    roles -> websocket
-    roles -> mattermost
-}
+```mermaid
+flowchart LR
+    subgraph Strategies["Model Selection Strategies"]
+        direction TB
+        Static["StaticStrategy\n(always first model)"]
+        Complexity["ComplexityStrategy\n(LLM classifies difficulty)"]
+        Cascade["CascadeStrategy\n(cheapest first, escalate)"]
+    end
+
+    Query["Query"] --> MR["ModelRouter"]
+    MR --> Strategies
+    Strategies --> Health["ModelHealthTracker\n(filter cooled-down)"]
+    Health --> Model["Selected Model"]
+
+    Pool["ModelPool"] -->|"mixed backends"| MR
+    Pool -->|"ollama://"| OC["OllamaClient"]
+    Pool -->|"openai://"| OAC["OpenAIClient"]
+    Pool -->|"groq://"| OAC
+```
+
+## Knowledge Flow
+
+```mermaid
+flowchart LR
+    subgraph Tiers["Three-Tier Knowledge"]
+        direction TB
+        T1["Tier 1: Axioms\n(immutable rules)"]
+        T2["Tier 2: Imported\n(user docs, promoted)"]
+        T3["Tier 3: Derived\n(from interactions)"]
+    end
+
+    Ingest["IngestionPipeline"] --> T3
+    User["User / !ingest"] --> T2
+    Config["Config / Code"] --> T1
+
+    T3 -->|"auto-promote\n(high confidence)"| T2
+    T3 -->|"prune\n(low confidence)"| Gone["Deleted"]
+
+    Lib["Librarian"] --> Ingest
+    Lib --> T3
+    Lib --> T2
+
+    Search["FTS5 Search"] --> Tiers
+    Tiers -->|"build_context()"| Prompt["LLM Prompt"]
+```
+
+## Digest Pipeline
+
+```mermaid
+flowchart LR
+    subgraph Producers["Producers (auto-record)"]
+        Resp["Response metadata\n(digest key)"]
+        BB["Blackboard posts\n(middleware hook)"]
+        CV["Consensus results\n(middleware hook)"]
+    end
+
+    Producers --> Store["DigestStore\n(SQLite, by audience)"]
+
+    Store -->|"get_unconsumed()\nor get_since(hours)"| Synth["DigestSynthesizer"]
+    Synth -->|"LLM narrative\n(or structured fallback)"| Report["Publish via\nReportManager"]
+
+    Config["DigestConfig\n(per-application\nsynthesis prompt)"] --> Synth
 ```
 
 ## Module Overview
@@ -215,63 +259,18 @@ Bridges to external systems.
 | `integrations/websocket_chat` | `ChatServer` — WebSocket chat with session tracking, role routing, and knowledge indexing                                                                                                               |
 | `discovery/`                  | `ServiceAdvertiser` — mDNS service advertising and discovery via zeroconf                                                                                                                               |
 
-## Data Flow
-
-```dot
-digraph dataflow {
-    rankdir=LR
-    node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10]
-    edge [fontname="Helvetica", fontsize=9]
-
-    user [label="User\nMessage", fillcolor="#e3f2fd", shape=ellipse]
-    router [label="BaseRouter\n(5-stage)", fillcolor="#fff3e0"]
-    role [label="BaseRole\n.handle()", fillcolor="#fce4ec"]
-    context [label="build_context()\nRAG + Blackboard\n+ Knowledge", fillcolor="#f3e5f5"]
-    llm [label="LLMClient\n.generate()", fillcolor="#c5cae9"]
-    response [label="Response", fillcolor="#e8f5e9", shape=ellipse]
-
-    // Optional branches
-    consensus_node [label="AgentTeam\n(parallel)", fillcolor="#b2ebf2"]
-    digest_node [label="DigestStore\n.record()", fillcolor="#fff176"]
-    report_node [label="ReportManager\n.create()", fillcolor="#fff176"]
-
-    user -> router [label="message"]
-    router -> role [label="role, reason"]
-    role -> context [label="query"]
-    context -> llm [label="prompt + system"]
-    llm -> response [label="text"]
-
-    response -> digest_node [label="metadata.digest", style=dashed]
-    response -> report_node [label="if report-worthy", style=dashed]
-
-    // Consensus path
-    router -> consensus_node [label="if high-stakes", style=dashed]
-    consensus_node -> response [label="consensus result", style=dashed]
-}
-```
-
-## Request Flow
-
-A typical message flows through:
-
-1. **Router** classifies the message using rules, keywords, regex, or semantic similarity
-2. **Role** selected by the router calls `build_context()` to gather RAG results, Blackboard state, and knowledge
-3. **LLM** generates a response using the assembled prompt
-4. **Post-processing** optionally extracts digest entries, detects reports, and logs feedback
-5. **Consensus** (if configured) runs multiple agents in parallel and aggregates votes before responding
-
-## Storage Pattern
+## Storage
 
 All persistent stores use SQLite. `ReportManager` and `DigestStore` enable WAL mode explicitly; other stores use SQLite defaults:
 
-| Store               | Database     | Purpose                               |
-| ------------------- | ------------ | ------------------------------------- |
-| `KnowledgeStore`    | configurable | Three-tier knowledge with FTS5 search |
-| `TripleStore`       | configurable | Semantic triples with confidence      |
-| `DocumentRetriever` | configurable | FTS5 document retrieval               |
-| `ReportManager`     | `reports.db` | Report persistence with TTL           |
-| `DigestStore`       | `digest.db`  | Activity transaction log              |
-| `FeedbackStore`     | configurable | Interaction logging for training      |
+| Store               | Database     | Purpose                                |
+| ------------------- | ------------ | -------------------------------------- |
+| `KnowledgeStore`    | configurable | Three-tier knowledge with FTS5 search  |
+| `TripleStore`       | configurable | Semantic triples with confidence       |
+| `DocumentRetriever` | configurable | FTS5 document retrieval                |
+| `ReportManager`     | `reports.db` | Report persistence with TTL (WAL mode) |
+| `DigestStore`       | `digest.db`  | Activity transaction log (WAL mode)    |
+| `FeedbackStore`     | configurable | Interaction logging for training       |
 
 ## Optional Dependencies
 
