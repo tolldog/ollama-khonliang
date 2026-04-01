@@ -90,7 +90,7 @@ src/khonliang/
   ...
 ```
 
-See [CLAUDE.md](CLAUDE.md) for a detailed architecture overview.
+See [docs/architecture.md](docs/architecture.md) for detailed architecture diagrams and module descriptions.
 
 ## Adding Dependencies
 
