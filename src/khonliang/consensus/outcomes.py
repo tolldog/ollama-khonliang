@@ -180,15 +180,16 @@ class OutcomeTracker:
         now = time.time()
         conn = self._conn()
         try:
-            found = (
-                conn.execute(
-                    "SELECT 1 FROM consensus_outcomes WHERE consensus_id = ?",
-                    (consensus_id,),
-                ).fetchone()
-                is not None
-            )
-            if not found:
-                logger.warning("Consensus %s not found for outcome recording", consensus_id)
+            # Check existence first (rowcount can be 0 on no-op UPDATE)
+            exists = conn.execute(
+                "SELECT 1 FROM consensus_outcomes WHERE consensus_id = ?",
+                (consensus_id,),
+            ).fetchone()
+            if not exists:
+                logger.warning(
+                    "Consensus %s not found for outcome recording",
+                    consensus_id,
+                )
                 return False
 
             conn.execute(
