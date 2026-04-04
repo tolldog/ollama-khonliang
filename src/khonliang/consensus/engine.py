@@ -6,6 +6,8 @@ A VETO from any agent blocks the decision regardless of other votes.
 """
 
 import logging
+import re
+from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional
 
 from khonliang.consensus.models import AgentVote, ConsensusResult
@@ -186,3 +188,100 @@ class ConsensusEngine:
     def update_weights(self, weights: Dict[str, float]) -> None:
         """Merge new per-agent weight overrides into the current weights."""
         self.agent_weights.update(weights)
+
+    # ------------------------------------------------------------------
+    # Vote validation (KH-6)
+    # ------------------------------------------------------------------
+
+    def validate_votes(self, votes: List[AgentVote]) -> List["ValidationIssue"]:
+        """Pre-consensus validation. Checks for common multi-agent failure modes.
+
+        Currently detects:
+        - reasoning_action_mismatch: reasoning sentiment contradicts the vote action
+        - empty_reasoning: vote has no explanation
+        - zero_confidence: agent voted but with 0.0 confidence
+
+        Returns a list of issues (empty = all votes OK).
+        """
+        issues: List[ValidationIssue] = []
+        for vote in votes:
+            # Empty reasoning
+            if not vote.reasoning or not vote.reasoning.strip():
+                issues.append(ValidationIssue(
+                    agent_id=vote.agent_id,
+                    issue_type="empty_reasoning",
+                    detail=f"Agent {vote.agent_id} voted {vote.action} with no reasoning",
+                ))
+
+            # Zero confidence
+            if vote.confidence == 0.0 and vote.action != "VETO":
+                issues.append(ValidationIssue(
+                    agent_id=vote.agent_id,
+                    issue_type="zero_confidence",
+                    detail=f"Agent {vote.agent_id} voted {vote.action} with 0.0 confidence",
+                ))
+
+            # Reasoning-action mismatch
+            mismatch = _detect_reasoning_action_mismatch(vote)
+            if mismatch:
+                issues.append(ValidationIssue(
+                    agent_id=vote.agent_id,
+                    issue_type="reasoning_action_mismatch",
+                    detail=mismatch,
+                ))
+
+        if issues:
+            logger.warning(
+                "Vote validation found %d issues: %s",
+                len(issues),
+                ", ".join(f"{i.agent_id}:{i.issue_type}" for i in issues),
+            )
+        return issues
+
+
+@dataclass
+class ValidationIssue:
+    """A problem detected during vote validation."""
+
+    agent_id: str
+    issue_type: str  # "reasoning_action_mismatch", "empty_reasoning", "zero_confidence"
+    detail: str
+
+
+# Sentiment keywords for reasoning-action mismatch detection
+_BULLISH = re.compile(
+    r"\b(bullish|oversold|buy signal|uptrend|breakout|support|recovery|positive|strong)\b",
+    re.IGNORECASE,
+)
+_BEARISH = re.compile(
+    r"\b(bearish|overbought|sell signal|downtrend|breakdown|resistance|decline|negative|weak)\b",
+    re.IGNORECASE,
+)
+_BUY_ACTIONS = {"BUY", "APPROVE", "LONG"}
+_SELL_ACTIONS = {"SELL", "REJECT", "SHORT"}
+
+
+def _detect_reasoning_action_mismatch(vote: AgentVote) -> Optional[str]:
+    """Check if reasoning sentiment contradicts the vote action."""
+    if not vote.reasoning:
+        return None
+
+    action_upper = vote.action.upper() if isinstance(vote.action, str) else str(vote.action).upper()
+    reasoning = vote.reasoning
+
+    bullish_hits = len(_BULLISH.findall(reasoning))
+    bearish_hits = len(_BEARISH.findall(reasoning))
+
+    # Only flag clear mismatches (2+ signals in wrong direction)
+    if action_upper in _SELL_ACTIONS and bullish_hits >= 2 and bearish_hits == 0:
+        return (
+            f"Agent {vote.agent_id} voted {vote.action} but reasoning is bullish: "
+            f"'{reasoning[:80]}...'"
+        )
+    if action_upper in _BUY_ACTIONS and bearish_hits >= 2 and bullish_hits == 0:
+        return (
+            f"Agent {vote.agent_id} voted {vote.action} but reasoning is bearish: "
+            f"'{reasoning[:80]}...'"
+        )
+
+    return None
