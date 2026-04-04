@@ -25,10 +25,10 @@ import logging
 import sqlite3
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from khonliang.consensus.models import AgentVote, ConsensusResult
+from khonliang.consensus.models import ConsensusResult
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +148,10 @@ class OutcomeTracker:
         finally:
             conn.close()
 
-        logger.debug("Recorded consensus %s: %s (%.0f%%)", cid, result.action, result.confidence * 100)
+        logger.debug(
+            "Recorded consensus %s: %s (%.0f%%)",
+            cid, result.action, result.confidence * 100,
+        )
         return cid
 
     def record_outcome(
