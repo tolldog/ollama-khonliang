@@ -129,10 +129,17 @@ class OutcomeTracker:
         conn = self._conn()
         try:
             conn.execute(
-                """INSERT OR REPLACE INTO consensus_outcomes
+                """INSERT INTO consensus_outcomes
                    (consensus_id, action, confidence, votes_json, scores_json,
                     reason, subject, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(consensus_id) DO UPDATE SET
+                       action=excluded.action,
+                       confidence=excluded.confidence,
+                       votes_json=excluded.votes_json,
+                       scores_json=excluded.scores_json,
+                       reason=excluded.reason,
+                       subject=excluded.subject""",
                 (
                     cid,
                     result.action,
@@ -173,19 +180,26 @@ class OutcomeTracker:
         now = time.time()
         conn = self._conn()
         try:
-            cursor = conn.execute(
+            found = (
+                conn.execute(
+                    "SELECT 1 FROM consensus_outcomes WHERE consensus_id = ?",
+                    (consensus_id,),
+                ).fetchone()
+                is not None
+            )
+            if not found:
+                logger.warning("Consensus %s not found for outcome recording", consensus_id)
+                return False
+
+            conn.execute(
                 """UPDATE consensus_outcomes
                    SET outcome = ?, outcome_at = ?, outcome_metadata = ?
                    WHERE consensus_id = ?""",
                 (outcome, now, json.dumps(metadata or {}), consensus_id),
             )
             conn.commit()
-            found = cursor.rowcount > 0
-            if found:
-                logger.debug("Recorded outcome for %s: %.4f", consensus_id, outcome)
-            else:
-                logger.warning("Consensus %s not found for outcome recording", consensus_id)
-            return found
+            logger.debug("Recorded outcome for %s: %.4f", consensus_id, outcome)
+            return True
         finally:
             conn.close()
 
