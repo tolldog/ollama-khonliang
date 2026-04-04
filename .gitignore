@@ -17,3 +17,4 @@ coverage.xml
 .venv/
 venv/
 model_profiles.yaml
+CLAUDE.md

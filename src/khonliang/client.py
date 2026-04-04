@@ -249,17 +249,17 @@ class OllamaClient:
         temperature: float = DEFAULT_TEMPERATURE,
         max_tokens: int = MAX_TOKENS,
         model: Optional[str] = None,
-        constrained: bool = False,
+        constrained: bool = True,
         keep_alive: Optional[str] = None,
     ) -> Dict:
         """
         Generate structured JSON output.
 
         Args:
-            constrained: If True, uses Ollama's native JSON mode
-                (format="json") which constrains token generation to
-                produce only valid JSON. Falls back to cleanup parsing
-                if the result still needs fixing.
+            constrained: Uses Ollama's native JSON mode (format="json")
+                which constrains token generation to produce only valid
+                JSON. Falls back to cleanup parsing if the result still
+                needs fixing. Default True (changed in v0.5.0).
         """
         json_system = (
             f"{system}\n\nRespond with valid JSON only. No markdown, no explanations."

@@ -20,6 +20,7 @@ Usage:
 """
 
 import logging
+import re
 import sqlite3
 import time
 from dataclasses import dataclass
@@ -72,6 +73,31 @@ class Triple:
         }
 
 
+def normalize_predicate(predicate: str, aliases: Optional[Dict[str, str]] = None) -> str:
+    """Normalize a predicate string to canonical form.
+
+    Steps:
+        1. Strip whitespace, lowercase
+        2. Replace spaces/hyphens with underscores
+        3. Strip leading "is_" / trailing "_of" variants
+        4. Apply explicit aliases if provided
+
+    Examples:
+        "Is Applicable To"  → "applicable_to"
+        "is_applicable_to"  → "applicable_to"
+        "used for"          → "used_for"
+        "Uses Method"       → "uses_method"
+    """
+    p = predicate.strip().lower()
+    p = re.sub(r"[\s\-]+", "_", p)
+    # Strip common prefixes that add no meaning
+    p = re.sub(r"^is_", "", p)
+    # Apply aliases
+    if aliases and p in aliases:
+        p = aliases[p]
+    return p
+
+
 class TripleStore:
     """
     SQLite-backed semantic triple store with confidence decay.
@@ -79,10 +105,17 @@ class TripleStore:
     Stores (subject, predicate, object) tuples. Duplicate triples
     reinforce confidence instead of creating new rows.
 
+    Predicates are auto-normalized on add/query: lowercased, underscored,
+    with common prefixes stripped. Use ``predicate_aliases`` to map
+    domain-specific synonyms to canonical forms.
+
     Example:
-        store = TripleStore("knowledge.db")
+        store = TripleStore("knowledge.db", predicate_aliases={
+            "used_for": "uses_method",
+            "achieves": "outperforms",
+        })
         store.add("TSLA", "correlates_with", "AMD", confidence=0.8)
-        store.add("user", "prefers", "conservative positions", confidence=0.9)
+        store.add("X", "Is Applicable To", "Y")  # stored as "applicable_to"
         triples = store.get("TSLA")
         context = store.build_context(subjects=["TSLA"])
     """
@@ -91,9 +124,11 @@ class TripleStore:
         self,
         db_path: str = "data/knowledge.db",
         default_decay_rate: float = 0.01,
+        predicate_aliases: Optional[Dict[str, str]] = None,
     ):
         self.db_path = db_path
         self.default_decay_rate = default_decay_rate
+        self.predicate_aliases = predicate_aliases or {}
         self._ensure_schema()
 
     def _conn(self) -> sqlite3.Connection:
@@ -109,6 +144,10 @@ class TripleStore:
         finally:
             conn.close()
 
+    def _normalize_predicate(self, predicate: str) -> str:
+        """Normalize a predicate using the store's aliases."""
+        return normalize_predicate(predicate, self.predicate_aliases)
+
     def add(
         self,
         subject: str,
@@ -120,9 +159,13 @@ class TripleStore:
         """
         Add or reinforce a triple.
 
+        The predicate is auto-normalized (lowercased, underscored,
+        aliases applied) before storage.
+
         If the triple already exists, confidence is updated to the
         max of current and new, and the timestamp is refreshed.
         """
+        predicate = self._normalize_predicate(predicate)
         now = time.time()
         conn = self._conn()
         try:
@@ -178,7 +221,7 @@ class TripleStore:
             params.append(subject)
         if predicate:
             conditions.append("predicate = ?")
-            params.append(predicate)
+            params.append(self._normalize_predicate(predicate))
         if obj:
             conditions.append("object = ?")
             params.append(obj)
@@ -331,7 +374,7 @@ class TripleStore:
         params: list = [subject]
         if predicate:
             conditions.append("predicate = ?")
-            params.append(predicate)
+            params.append(self._normalize_predicate(predicate))
         if obj:
             conditions.append("object = ?")
             params.append(obj)

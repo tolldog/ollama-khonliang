@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.0] - 2026-04-03
+
+### Added
+
+- **KH-10: Triple predicate normalization** — `TripleStore` auto-normalizes predicates on add/get/remove (lowercase, underscored, prefix stripping). New `predicate_aliases` constructor param for domain-specific synonyms. `normalize_predicate()` exported from `khonliang.knowledge`.
+
+- **KH-11: KnowledgeStore status field** — `EntryStatus` class with workflow states (active, ingested, processing, distilled, failed, skipped, archived). New `status` field on `KnowledgeEntry`, `get_by_status()` and `set_status()` methods. Auto-migrates existing DBs via `ALTER TABLE`.
+
+### Changed
+
+- **KH-13: Constrained JSON default** — `generate_json()` now defaults to `constrained=True` (Ollama native JSON mode) on both `OllamaClient` and `OpenAIClient`. Falls back to cleanup parsing on failure. Significantly reduces JSON generation failures on small models.
+
 ## [0.4.0] - 2026-03-31
 
 ### Added

@@ -29,6 +29,22 @@ class Tier(IntEnum):
     DERIVED = 3
 
 
+class EntryStatus(str):
+    """Workflow status for knowledge entries.
+
+    Using str subclass (not Enum) for SQLite compatibility and
+    forward-compatibility with custom status values.
+    """
+
+    ACTIVE = "active"
+    INGESTED = "ingested"
+    PROCESSING = "processing"
+    DISTILLED = "distilled"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+    ARCHIVED = "archived"
+
+
 @dataclass
 class KnowledgeEntry:
     """A single piece of knowledge in the store."""
@@ -40,6 +56,7 @@ class KnowledgeEntry:
     scope: str = "global"  # global, or a domain tag (e.g. "toll", "thomas")
     source: str = ""  # where this came from (filename, agent_id, user)
     confidence: float = 1.0  # 0.0-1.0, lower for derived
+    status: str = EntryStatus.ACTIVE  # workflow status
     tags: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
     created_at: float = 0.0
@@ -56,6 +73,7 @@ class KnowledgeEntry:
             "scope": self.scope,
             "source": self.source,
             "confidence": self.confidence,
+            "status": self.status,
             "tags": self.tags,
             "metadata": self.metadata,
             "created_at": self.created_at,
@@ -73,12 +91,15 @@ CREATE TABLE IF NOT EXISTS knowledge (
     scope       TEXT NOT NULL DEFAULT 'global',
     source      TEXT DEFAULT '',
     confidence  REAL DEFAULT 1.0,
+    status      TEXT NOT NULL DEFAULT 'active',
     tags        TEXT DEFAULT '[]',
     metadata    TEXT DEFAULT '{}',
     created_at  REAL NOT NULL,
     updated_at  REAL NOT NULL,
     access_count INTEGER DEFAULT 0
 );
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_status ON knowledge(status);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(
     id, title, content, scope, tags,
@@ -155,6 +176,15 @@ class KnowledgeStore:
         conn = self._conn()
         try:
             conn.executescript(_SCHEMA)
+            # Migrate existing DBs: add status column if missing
+            cols = [row[1] for row in conn.execute("PRAGMA table_info(knowledge)")]
+            if "status" not in cols:
+                conn.execute(
+                    "ALTER TABLE knowledge ADD COLUMN status TEXT NOT NULL DEFAULT 'active'"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_knowledge_status ON knowledge(status)"
+                )
             conn.commit()
         finally:
             conn.close()
@@ -204,8 +234,8 @@ class KnowledgeStore:
                 """
                 INSERT OR REPLACE INTO knowledge
                     (id, tier, title, content, scope, source, confidence,
-                     tags, metadata, created_at, updated_at, access_count)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     status, tags, metadata, created_at, updated_at, access_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     entry.id,
@@ -215,6 +245,7 @@ class KnowledgeStore:
                     entry.scope,
                     entry.source,
                     entry.confidence,
+                    entry.status,
                     json.dumps(entry.tags),
                     json.dumps(entry.metadata),
                     entry.created_at,
@@ -258,6 +289,37 @@ class KnowledgeStore:
                 (tier.value,),
             ).fetchall()
             return [self._row_to_entry(r) for r in rows]
+        finally:
+            conn.close()
+
+    def get_by_status(self, status: str, tier: Optional[Tier] = None) -> List[KnowledgeEntry]:
+        """Get entries by workflow status, optionally filtered by tier."""
+        conn = self._conn()
+        try:
+            if tier is not None:
+                rows = conn.execute(
+                    "SELECT * FROM knowledge WHERE status = ? AND tier = ? ORDER BY created_at",
+                    (status, tier.value),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM knowledge WHERE status = ? ORDER BY created_at",
+                    (status,),
+                ).fetchall()
+            return [self._row_to_entry(r) for r in rows]
+        finally:
+            conn.close()
+
+    def set_status(self, entry_id: str, status: str) -> bool:
+        """Update the status of an entry. Returns True if entry exists."""
+        conn = self._conn()
+        try:
+            cursor = conn.execute(
+                "UPDATE knowledge SET status = ?, updated_at = ? WHERE id = ?",
+                (status, time.time(), entry_id),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
         finally:
             conn.close()
 
@@ -555,6 +617,9 @@ class KnowledgeStore:
 
     @staticmethod
     def _row_to_entry(row: sqlite3.Row) -> KnowledgeEntry:
+        # status column may not exist in older DBs before migration runs
+        keys = row.keys() if hasattr(row, "keys") else []
+        status = row["status"] if "status" in keys else EntryStatus.ACTIVE
         return KnowledgeEntry(
             id=row["id"],
             tier=Tier(row["tier"]),
@@ -563,6 +628,7 @@ class KnowledgeStore:
             scope=row["scope"],
             source=row["source"],
             confidence=row["confidence"],
+            status=status,
             tags=json.loads(row["tags"]) if row["tags"] else [],
             metadata=json.loads(row["metadata"]) if row["metadata"] else {},
             created_at=row["created_at"],

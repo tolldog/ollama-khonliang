@@ -242,7 +242,7 @@ class OpenAIClient:
         temperature: float = 0.7,
         max_tokens: int = 4000,
         model: Optional[str] = None,
-        constrained: bool = False,
+        constrained: bool = True,
         keep_alive: Optional[str] = None,
     ) -> Dict:
         """Generate structured JSON output.
