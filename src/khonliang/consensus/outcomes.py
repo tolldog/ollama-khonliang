@@ -2,9 +2,9 @@
 Outcome tracking for consensus decisions.
 
 Records the real-world outcome of each consensus decision, enabling:
-  - Weight learning (KH-2): which agents predict good outcomes?
-  - Heuristic extraction (KH-4): which patterns precede success?
-  - Triple patterns (AS-3): which agent agreements are profitable?
+  - Weight learning: which agents predict good outcomes?
+  - Heuristic extraction: which patterns precede success?
+  - Cooperation analysis: which agent agreements correlate with success?
 
 Usage:
     tracker = OutcomeTracker("data/outcomes.db")
@@ -13,11 +13,11 @@ Usage:
     consensus_id = tracker.record_consensus(result)
 
     # Later, when outcome is known
-    tracker.record_outcome(consensus_id, outcome=0.05, metadata={"symbol": "TSLA"})
+    tracker.record_outcome(consensus_id, outcome=0.8, metadata={"task": "triage-42"})
 
     # Query
-    history = tracker.get_history(agent_id="quant", limit=50)
-    stats = tracker.get_agent_stats("quant")
+    history = tracker.get_history(agent_id="analyst", limit=50)
+    stats = tracker.get_agent_stats("analyst")
 """
 
 import json
@@ -164,7 +164,7 @@ class OutcomeTracker:
 
         Args:
             consensus_id: The ID returned by record_consensus()
-            outcome: Numeric outcome (e.g., P&L percentage, success score 0-1)
+            outcome: Numeric outcome score (e.g., accuracy, success rate 0-1)
             metadata: Additional context (e.g., symbol, hold_days, exit_reason)
 
         Returns:
