@@ -34,6 +34,8 @@ class ConsensusEngine:
         veto_blocks: bool = True,
         min_confidence: float = 0.0,
         judge_fn: Optional[Callable[[List[AgentVote]], Optional[AgentVote]]] = None,
+        debate_orchestrator: Optional[object] = None,
+        debate_threshold: float = 0.15,
     ):
         """
         Args:
@@ -43,11 +45,18 @@ class ConsensusEngine:
             judge_fn: Optional sync/async function that reviews votes after
                       aggregation. Signature: (votes) -> Optional[AgentVote].
                       Returns None to accept consensus, or an AgentVote to override.
+            debate_orchestrator: Optional DebateOrchestrator. When provided,
+                auto-triggers debate when top 2 action scores are within
+                debate_threshold of each other.
+            debate_threshold: Score gap below which debate is triggered (0-1).
+                Default 0.15 means debate when winner leads by < 15%.
         """
         self.agent_weights = agent_weights or {}
         self.veto_blocks = veto_blocks
         self.min_confidence = min_confidence
         self.judge_fn = judge_fn
+        self.debate_orchestrator = debate_orchestrator
+        self.debate_threshold = debate_threshold
 
     def _effective_weight(self, vote: AgentVote) -> float:
         return self.agent_weights.get(vote.agent_id, vote.weight)
@@ -110,6 +119,70 @@ class ConsensusEngine:
             result = self._apply_judge(result, votes)
 
         return result
+
+    def needs_debate(self, scores: Dict[str, float]) -> bool:
+        """Check if scores are close enough to warrant debate.
+
+        Returns True when the gap between the top 2 action scores
+        is within debate_threshold and a debate_orchestrator is set.
+        """
+        if self.debate_orchestrator is None:
+            return False
+        if len(scores) < 2:
+            return False
+
+        sorted_scores = sorted(scores.values(), reverse=True)
+        gap = sorted_scores[0] - sorted_scores[1]
+        return gap < self.debate_threshold
+
+    async def calculate_consensus_with_debate(
+        self,
+        votes: List[AgentVote],
+        subject: str = "",
+        context: Optional[dict] = None,
+    ) -> ConsensusResult:
+        """Async consensus with auto-debate on close scores.
+
+        Same as calculate_consensus() but triggers debate when the
+        top 2 action scores are within debate_threshold. Falls back
+        to standard consensus if no debate_orchestrator is set.
+
+        Args:
+            votes: Agent votes
+            subject: What is being evaluated (passed to debate)
+            context: Optional context (passed to debate)
+        """
+        # First pass: standard consensus
+        result = self.calculate_consensus(votes)
+
+        # Check if debate is warranted
+        if not self.needs_debate(result.scores):
+            return result
+
+        logger.info(
+            "Auto-debate triggered for '%s': scores %s (gap < %.0f%%)",
+            subject[:40],
+            {k: f"{v:.2f}" for k, v in result.scores.items()},
+            self.debate_threshold * 100,
+        )
+
+        # Run debate to let agents reconsider
+        updated_votes = await self.debate_orchestrator.run_debate(
+            votes, subject, context,
+        )
+
+        # Recalculate consensus with updated votes
+        # Temporarily disable debate to avoid recursion
+        saved = self.debate_orchestrator
+        self.debate_orchestrator = None
+        final = self.calculate_consensus(updated_votes)
+        self.debate_orchestrator = saved
+
+        final.debate_rounds = getattr(
+            self.debate_orchestrator, "_debate_history", [{}]
+        )[-1].get("rounds", 1) if hasattr(self.debate_orchestrator, "_debate_history") else 1
+
+        return final
 
     def _apply_judge(
         self, result: ConsensusResult, votes: List[AgentVote]
