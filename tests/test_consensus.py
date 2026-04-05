@@ -1,5 +1,6 @@
-"""Tests for ConsensusEngine vote validation and OutcomeTracker."""
+"""Tests for ConsensusEngine vote validation, OutcomeTracker, debate, and sampling."""
 
+import asyncio
 import os
 import tempfile
 
@@ -8,6 +9,7 @@ import pytest
 from khonliang.consensus.engine import ConsensusEngine, ValidationIssue
 from khonliang.consensus.models import AgentVote, ConsensusResult
 from khonliang.consensus.outcomes import OutcomeTracker
+from khonliang.consensus.team import _select_best_vote
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -337,3 +339,180 @@ def test_validation_issue_is_dataclass():
     )
     assert issue.agent_id == "a1"
     assert issue.issue_type == "empty_reasoning"
+
+
+# ---------------------------------------------------------------------------
+# _select_best_vote (team.py)
+# ---------------------------------------------------------------------------
+
+def test_select_best_vote_single_candidate():
+    v = _vote("a", "APPROVE", 0.8, "good")
+    assert _select_best_vote([v]) is v
+
+
+def test_select_best_vote_plurality_action_wins():
+    candidates = [
+        _vote("a", "APPROVE", 0.7, "r"),
+        _vote("b", "APPROVE", 0.9, "r"),
+        _vote("c", "REJECT", 0.6, "r"),
+    ]
+    best = _select_best_vote(candidates)
+    assert best.action == "APPROVE"
+
+
+def test_select_best_vote_highest_confidence_in_plurality():
+    candidates = [
+        _vote("a", "APPROVE", 0.7, "r"),
+        _vote("b", "APPROVE", 0.9, "r"),
+        _vote("c", "REJECT", 0.6, "r"),
+    ]
+    best = _select_best_vote(candidates)
+    assert best.confidence == pytest.approx(0.9)
+
+
+def test_select_best_vote_unanimous():
+    candidates = [
+        _vote("a", "APPROVE", 0.5, "r"),
+        _vote("b", "APPROVE", 0.8, "r"),
+        _vote("c", "APPROVE", 0.6, "r"),
+    ]
+    best = _select_best_vote(candidates)
+    assert best.action == "APPROVE"
+    assert best.confidence == pytest.approx(0.8)
+
+
+# ---------------------------------------------------------------------------
+# ConsensusEngine.needs_debate
+# ---------------------------------------------------------------------------
+
+def test_needs_debate_no_orchestrator():
+    engine = ConsensusEngine()
+    assert engine.needs_debate({"APPROVE": 0.6, "REJECT": 0.4}) is False
+
+
+def test_needs_debate_single_action():
+    engine = ConsensusEngine(debate_orchestrator=object(), debate_threshold=0.15)
+    assert engine.needs_debate({"APPROVE": 1.0}) is False
+
+
+def test_needs_debate_gap_above_threshold():
+    engine = ConsensusEngine(debate_orchestrator=object(), debate_threshold=0.15)
+    # Gap = 0.6 - 0.4 = 0.2 > 0.15 → no debate needed
+    assert engine.needs_debate({"APPROVE": 0.6, "REJECT": 0.4}) is False
+
+
+def test_needs_debate_gap_below_threshold():
+    engine = ConsensusEngine(debate_orchestrator=object(), debate_threshold=0.15)
+    # Gap = 0.525 - 0.475 = 0.05 < 0.15 → debate needed
+    assert engine.needs_debate({"APPROVE": 0.525, "REJECT": 0.475}) is True
+
+
+def test_needs_debate_gap_exactly_at_threshold_not_triggered():
+    """Strict less-than: gap clearly above threshold should NOT trigger debate."""
+    engine = ConsensusEngine(debate_orchestrator=object(), debate_threshold=0.15)
+    # Gap = 0.7 - 0.3 = 0.4, well above threshold of 0.15
+    assert engine.needs_debate({"APPROVE": 0.7, "REJECT": 0.3}) is False
+
+
+# ---------------------------------------------------------------------------
+# ConsensusEngine.calculate_consensus_with_debate
+# ---------------------------------------------------------------------------
+
+async def test_calculate_consensus_with_debate_no_orchestrator():
+    """Returns standard consensus result when no orchestrator is configured."""
+    engine = ConsensusEngine()
+    votes = [
+        _vote("a", "APPROVE", 0.9, "looks good"),
+        _vote("b", "REJECT", 0.3, "marginal concern"),
+    ]
+    result = await engine.calculate_consensus_with_debate(votes, subject="test")
+    assert result.action == "APPROVE"
+
+
+async def test_calculate_consensus_with_debate_skips_when_not_close():
+    """Debate is not triggered when scores are far apart."""
+    debate_called = []
+
+    class MockOrchestrator:
+        async def run_debate(self, votes, subject, context):
+            debate_called.append(True)
+            raise AssertionError("should not be called")
+
+    engine = ConsensusEngine(
+        debate_orchestrator=MockOrchestrator(),
+        debate_threshold=0.05,  # tight threshold
+    )
+    votes = [
+        _vote("a", "APPROVE", 0.9, "clearly good"),
+        _vote("b", "APPROVE", 0.85, "also good"),
+        _vote("c", "REJECT", 0.05, "marginal"),
+    ]
+    result = await engine.calculate_consensus_with_debate(votes)
+    assert result.action == "APPROVE"
+    assert not debate_called
+
+
+async def test_calculate_consensus_with_debate_triggers_and_recalculates():
+    """Debate is triggered on close scores and consensus recalculates from updated votes."""
+    post_debate_votes = [
+        _vote("a", "APPROVE", 0.9, "convinced"),
+        _vote("b", "APPROVE", 0.75, "changed mind"),
+    ]
+
+    class MockOrchestrator:
+        _debate_history = [{"rounds": 2}]
+
+        async def run_debate(self, votes, subject, context):
+            return post_debate_votes
+
+    engine = ConsensusEngine(
+        debate_orchestrator=MockOrchestrator(),
+        debate_threshold=0.5,  # wide threshold — debate always triggered
+    )
+    votes = [
+        _vote("a", "APPROVE", 0.55, "slight lean"),
+        _vote("b", "REJECT", 0.45, "slight lean other way"),
+    ]
+    result = await engine.calculate_consensus_with_debate(votes, subject="close call")
+    assert result.action == "APPROVE"
+    assert result.debate_rounds == 2
+
+
+async def test_calculate_consensus_with_debate_empty_history_defaults_to_one():
+    """debate_rounds defaults to 1 when orchestrator._debate_history is empty."""
+
+    class MockOrchestrator:
+        _debate_history: list = []
+
+        async def run_debate(self, votes, subject, context):
+            return votes  # return original votes unchanged
+
+    engine = ConsensusEngine(
+        debate_orchestrator=MockOrchestrator(),
+        debate_threshold=0.5,
+    )
+    votes = [
+        _vote("a", "APPROVE", 0.55, "slight lean"),
+        _vote("b", "REJECT", 0.45, "other lean"),
+    ]
+    result = await engine.calculate_consensus_with_debate(votes)
+    assert result.debate_rounds == 1
+
+
+async def test_calculate_consensus_with_debate_no_history_attr():
+    """debate_rounds defaults to 1 when orchestrator has no _debate_history attribute."""
+
+    class MockOrchestrator:
+        async def run_debate(self, votes, subject, context):
+            return votes
+
+    engine = ConsensusEngine(
+        debate_orchestrator=MockOrchestrator(),
+        debate_threshold=0.5,
+    )
+    votes = [
+        _vote("a", "APPROVE", 0.55, "lean"),
+        _vote("b", "REJECT", 0.45, "other lean"),
+    ]
+    result = await engine.calculate_consensus_with_debate(votes)
+    assert result.debate_rounds == 1
