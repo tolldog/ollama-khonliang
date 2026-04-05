@@ -167,20 +167,26 @@ class ConsensusEngine:
         )
 
         # Run debate to let agents reconsider
-        updated_votes = await self.debate_orchestrator.run_debate(
+        orchestrator = self.debate_orchestrator
+        updated_votes = await orchestrator.run_debate(
             votes, subject, context,
         )
 
-        # Recalculate consensus with updated votes
-        # Temporarily disable debate to avoid recursion
-        saved = self.debate_orchestrator
-        self.debate_orchestrator = None
-        final = self.calculate_consensus(updated_votes)
-        self.debate_orchestrator = saved
+        # Recalculate consensus without debate to avoid recursion.
+        # Use a local engine copy rather than mutating self to stay thread-safe.
+        local_engine = ConsensusEngine(
+            agent_weights=self.agent_weights,
+            veto_blocks=self.veto_blocks,
+            min_confidence=self.min_confidence,
+            judge_fn=self.judge_fn,
+        )
+        final = local_engine.calculate_consensus(updated_votes)
 
-        final.debate_rounds = getattr(
-            self.debate_orchestrator, "_debate_history", [{}]
-        )[-1].get("rounds", 1) if hasattr(self.debate_orchestrator, "_debate_history") else 1
+        history = getattr(orchestrator, "_debate_history", None)
+        if history:
+            final.debate_rounds = history[-1].get("rounds", 1)
+        else:
+            final.debate_rounds = 1
 
         return final
 

@@ -12,7 +12,7 @@ Based on:
 Usage:
     from khonliang.consensus.credit import compute_agent_credits
 
-    credits = compute_agent_credits(tracker, engine, min_samples=30)
+    credits = compute_agent_credits(tracker, min_samples=30)
     # {"analyst": 0.35, "reviewer": 0.28, "skeptic": 0.22, ...}
 """
 

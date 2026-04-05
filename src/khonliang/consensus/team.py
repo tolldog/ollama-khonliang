@@ -229,15 +229,16 @@ class AgentTeam:
         if sample_count <= 1:
             return await self._collect_single_votes(subject, context)
 
-        # Group sampling: each agent generates N candidates
+        # Group sampling: each agent generates N candidates in parallel
+        agent_tasks = [
+            self._sample_agent(agent, subject, context, sample_count)
+            for agent in self.agents
+        ]
+        per_agent_candidates = await asyncio.gather(*agent_tasks)
         best_votes = []
-        for agent in self.agents:
-            candidates = await self._sample_agent(
-                agent, subject, context, sample_count,
-            )
+        for candidates in per_agent_candidates:
             if candidates:
-                best = _select_best_vote(candidates)
-                best_votes.append(best)
+                best_votes.append(_select_best_vote(candidates))
         return best_votes
 
     async def _collect_single_votes(
@@ -267,21 +268,20 @@ class AgentTeam:
         context: Dict[str, Any],
         n: int,
     ) -> List[AgentVote]:
-        """Collect N candidate votes from a single agent."""
+        """Collect N candidate votes from a single agent in parallel."""
         tasks = [
             asyncio.create_task(agent.analyze(subject, context))
             for _ in range(n)
         ]
         candidates = []
-        for task in tasks:
-            try:
-                vote = await asyncio.wait_for(task, timeout=self.agent_timeout)
-                if vote:
-                    candidates.append(vote)
-            except asyncio.TimeoutError:
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for res in results:
+            if isinstance(res, asyncio.TimeoutError):
                 logger.warning(f"Agent '{agent.agent_id}' sample timed out")
-            except Exception as e:
-                logger.debug(f"Agent '{agent.agent_id}' sample failed: {e}")
+            elif isinstance(res, Exception):
+                logger.debug(f"Agent '{agent.agent_id}' sample failed: {res}")
+            elif res:
+                candidates.append(res)
         return candidates
 
     def _get_cached(self, key: str) -> Optional[ConsensusResult]:
