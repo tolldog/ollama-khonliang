@@ -3,7 +3,7 @@
 import os
 import tempfile
 
-from khonliang.consensus.engine import ConsensusEngine, ValidationIssue
+from khonliang.consensus.engine import ConsensusEngine
 from khonliang.consensus.models import AgentVote, ConsensusResult
 from khonliang.consensus.outcomes import OutcomeTracker
 
@@ -187,7 +187,7 @@ class TestOutcomeRecord:
 
     def test_agents_who_voted(self):
         tracker, path = _temp_tracker()
-        cid = tracker.record_consensus(_sample_result())
+        tracker.record_consensus(_sample_result())
         record = tracker.get_history()[0]
 
         approvers = record.agents_who_voted("APPROVE")
