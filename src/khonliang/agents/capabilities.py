@@ -4,19 +4,27 @@ Agent capability registry — registration and discovery.
 Agents declare their capabilities at startup. Routers and orchestrators
 use the registry to find the right agent(s) for a given task.
 
+Supports both exact-match lookup and embedding-based similarity search.
+
 Usage:
     registry = CapabilityRegistry()
     registry.register("analyst", [
         AgentCapability("analyst", "root_cause_analysis", "Deep investigation"),
     ])
+
+    # Exact match
     agents = registry.find("root_cause_analysis")
-    prompt_snippet = registry.describe_for_llm()
+
+    # Similarity search (requires embeddings)
+    matches = registry.find_capable("investigate server crash", threshold=0.6)
+    # Returns: [("analyst", 0.85), ...]
 """
 
 import json
 import logging
-from dataclasses import asdict, dataclass
-from typing import Any, Dict, List, Optional
+import math
+from dataclasses import asdict, dataclass, field
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -31,12 +39,14 @@ class AgentCapability:
         capability: Machine-readable capability name
         description: Human-readable description for LLM prompts
         input_schema: Optional JSON schema for structured input
+        embedding: Optional vector for similarity-based task routing
     """
 
     agent_id: str
     capability: str
     description: str
     input_schema: Optional[Dict[str, Any]] = None
+    embedding: Optional[List[float]] = field(default=None, repr=False)
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize to a plain dict."""
@@ -50,6 +60,7 @@ class AgentCapability:
             capability=data["capability"],
             description=data["description"],
             input_schema=data.get("input_schema"),
+            embedding=data.get("embedding"),
         )
 
 
@@ -176,12 +187,96 @@ class CapabilityRegistry:
             logger.warning(f"Failed to load registry from Redis: {e}")
             return False
 
+    def find_capable(
+        self,
+        task: str,
+        threshold: float = 0.6,
+        limit: int = 5,
+        task_embedding: Optional[List[float]] = None,
+        embed_fn: Optional[Callable[[str], List[float]]] = None,
+    ) -> List[Tuple[str, float]]:
+        """Find agents capable of a task using embedding similarity.
+
+        Compares the task embedding against each capability's embedding.
+        Returns (agent_id, score) pairs sorted by best match.
+
+        Args:
+            task: Task description (used with embed_fn if task_embedding not given)
+            threshold: Minimum cosine similarity (0-1)
+            limit: Max results
+            task_embedding: Pre-computed embedding for the task
+            embed_fn: Callable that produces an embedding from text.
+                Signature: (text: str) -> List[float]
+                Used when task_embedding is not provided.
+
+        Returns:
+            List of (agent_id, similarity_score) sorted descending.
+            Empty list if no capabilities have embeddings.
+        """
+        # Get task embedding
+        emb = task_embedding
+        if emb is None and embed_fn is not None:
+            try:
+                emb = embed_fn(task)
+            except Exception as e:
+                logger.warning("embed_fn failed for task routing: %s", e)
+                return []
+
+        if emb is None:
+            logger.debug("No embedding for task routing — use find() for exact match")
+            return []
+
+        # Clamp inputs
+        threshold = max(0.0, min(1.0, threshold))
+        limit = max(1, limit)
+
+        # Score each agent by best capability match
+        agent_scores: Dict[str, float] = {}
+        for agent_id, caps in self._capabilities.items():
+            best = -1.0  # Cosine similarity can be negative
+            for cap in caps:
+                if cap.embedding is None:
+                    continue
+                sim = _cosine_similarity(emb, cap.embedding)
+                best = max(best, sim)
+            if best >= threshold:
+                agent_scores[agent_id] = best
+
+        ranked = sorted(agent_scores.items(), key=lambda x: -x[1])
+        return ranked[:limit]
+
     def get_stats(self) -> Dict[str, Any]:
         """Return summary statistics about the registry."""
         total_caps = sum(len(caps) for caps in self._capabilities.values())
+        caps_with_emb = sum(
+            1
+            for caps in self._capabilities.values()
+            for c in caps
+            if c.embedding is not None
+        )
         return {
             "registered_agents": len(self._capabilities),
             "total_capabilities": total_caps,
             "unique_capabilities": len(self.list_capabilities()),
+            "capabilities_with_embeddings": caps_with_emb,
             "redis_backed": self._redis is not None,
         }
+
+
+def _cosine_similarity(a: List[float], b: List[float]) -> float:
+    """Compute cosine similarity between two vectors."""
+    if not a or not b:
+        return 0.0
+    if len(a) != len(b):
+        logger.debug(
+            "Embedding dimension mismatch in cosine similarity: %d vs %d",
+            len(a),
+            len(b),
+        )
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(x * x for x in b))
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
