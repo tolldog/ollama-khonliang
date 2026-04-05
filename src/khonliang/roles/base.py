@@ -268,19 +268,29 @@ def _extract_sections(text: str, max_chars: int) -> str:
 
     if len(sections) < 3:
         # No clear structure — take first and last chunks
-        half = max_chars // 2
+        overhead = len("[Extracted first + last chunks]\n\n\n[...]\n\n")
+        usable = max(0, max_chars - overhead)
+        half = usable // 2
         result = text[:half] + "\n\n[...]\n\n" + text[-half:]
         return f"[Extracted first + last chunks]\n{result}"
 
+    # Reserve budget for formatting overhead
+    overhead_per_section = 20  # "## SectionName\n"
+    prefix_overhead = 40
+    usable = max(0, max_chars - prefix_overhead)
+
     # Allocate budget to priority sections
     selected: List[Tuple[str, str]] = []
-    remaining = max_chars
+    remaining = usable
 
     for target_name, budget_frac in _SECTION_PRIORITIES:
-        budget = int(max_chars * budget_frac)
+        budget = int(usable * budget_frac)
         for sec_name, sec_text in sections:
             if target_name in sec_name.lower() and budget > 0:
-                chunk = sec_text[:min(budget, remaining)]
+                avail = min(budget, remaining - overhead_per_section)
+                if avail <= 0:
+                    break
+                chunk = sec_text[:avail]
                 if chunk:
                     selected.append((sec_name, chunk))
                     remaining -= len(chunk)
