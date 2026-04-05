@@ -214,7 +214,8 @@ class ConsensusEngine:
                 ))
 
             # Zero confidence
-            if vote.confidence == 0.0 and vote.action != "VETO":
+            action_upper = str(vote.action).upper()
+            if vote.confidence == 0.0 and action_upper != "VETO":
                 issues.append(ValidationIssue(
                     agent_id=vote.agent_id,
                     issue_type="zero_confidence",

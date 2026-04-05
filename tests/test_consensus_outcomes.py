@@ -53,7 +53,7 @@ class TestRecordConsensus:
         os.unlink(path)
 
     def test_duplicate_consensus_ignored(self):
-        """INSERT OR IGNORE should not overwrite existing record."""
+        """Re-recording a consensus updates vote data but preserves outcome."""
         tracker, path = _temp_tracker()
         result = _sample_result()
         cid = tracker.record_consensus(result, consensus_id="dup-1", subject="first")

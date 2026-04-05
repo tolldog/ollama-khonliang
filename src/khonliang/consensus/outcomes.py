@@ -233,19 +233,21 @@ class OutcomeTracker:
         if with_outcome_only:
             query += " AND outcome IS NOT NULL"
 
+        # When agent_id filter is used, over-fetch to compensate for
+        # post-SQL filtering (agent_id is inside votes JSON, not a column).
+        sql_limit = limit * 3 if agent_id else limit
         query += " ORDER BY created_at DESC LIMIT ?"
-        params.append(limit)
+        params.append(sql_limit)
 
         conn = self._conn()
         try:
             rows = conn.execute(query, params).fetchall()
             records = [self._row_to_record(r) for r in rows]
 
-            # Post-filter by agent_id (requires checking votes JSON)
             if agent_id:
                 records = [r for r in records if r.agent_voted(agent_id)]
 
-            return records
+            return records[:limit]
         finally:
             conn.close()
 
