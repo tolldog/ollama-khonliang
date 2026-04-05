@@ -12,12 +12,12 @@ Based on:
 Usage:
     from khonliang.consensus.credit import compute_agent_credits
 
-    credits = compute_agent_credits(tracker, engine, min_samples=30)
+    credits = compute_agent_credits(tracker, min_samples=30)
     # {"analyst": 0.35, "reviewer": 0.28, "skeptic": 0.22, ...}
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from khonliang.consensus.models import AgentVote, ConsensusResult
 from khonliang.consensus.outcomes import OutcomeTracker
@@ -60,7 +60,7 @@ def compute_agent_credits(
         return None
 
     # Collect all agent IDs seen across records
-    all_agents: set = set()
+    all_agents: Set[str] = set()
     for r in records:
         for v in r.votes:
             aid = v.get("agent_id")
@@ -140,6 +140,7 @@ def suggest_weights(
     veto_blocks: bool = True,
     min_samples: int = 20,
     blend: float = 0.3,
+    limit: int = 500,
 ) -> Optional[Dict[str, float]]:
     """Suggest updated agent weights based on outcome history.
 
@@ -152,12 +153,13 @@ def suggest_weights(
         veto_blocks: Whether VETO blocks consensus
         min_samples: Minimum samples required
         blend: How much credit influences the result (0=keep current, 1=all credit)
+        limit: Max records to analyse (forwarded to compute_agent_credits)
 
     Returns:
         Suggested weights (sum to 1.0), or None if insufficient data.
     """
     credits = compute_agent_credits(
-        tracker, current_weights, veto_blocks, min_samples,
+        tracker, current_weights, veto_blocks, min_samples, limit,
     )
     if credits is None:
         return None
@@ -193,7 +195,8 @@ def _reconstruct_votes(vote_dicts: List[Dict[str, Any]]) -> List[AgentVote]:
                 reasoning=v.get("reasoning", ""),
                 weight=v.get("weight", 1.0),
             ))
-        except (KeyError, ValueError):
+        except (KeyError, ValueError) as exc:
+            logger.warning("Skipping malformed vote dict during credit replay: %s", exc)
             continue
     return votes
 
