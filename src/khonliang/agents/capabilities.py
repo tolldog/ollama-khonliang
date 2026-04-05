@@ -24,7 +24,7 @@ import json
 import logging
 import math
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +60,7 @@ class AgentCapability:
             capability=data["capability"],
             description=data["description"],
             input_schema=data.get("input_schema"),
+            embedding=data.get("embedding"),
         )
 
 
@@ -192,7 +193,7 @@ class CapabilityRegistry:
         threshold: float = 0.6,
         limit: int = 5,
         task_embedding: Optional[List[float]] = None,
-        embed_fn: Optional[Any] = None,
+        embed_fn: Optional[Callable[[str], List[float]]] = None,
     ) -> List[Tuple[str, float]]:
         """Find agents capable of a task using embedding similarity.
 
@@ -260,7 +261,14 @@ class CapabilityRegistry:
 
 def _cosine_similarity(a: List[float], b: List[float]) -> float:
     """Compute cosine similarity between two vectors."""
-    if len(a) != len(b) or not a:
+    if not a or not b:
+        return 0.0
+    if len(a) != len(b):
+        logger.debug(
+            "Embedding dimension mismatch in cosine similarity: %d vs %d",
+            len(a),
+            len(b),
+        )
         return 0.0
     dot = sum(x * y for x, y in zip(a, b))
     norm_a = math.sqrt(sum(x * x for x in a))
