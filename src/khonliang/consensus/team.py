@@ -40,6 +40,32 @@ from khonliang.consensus.models import AgentVote, ConsensusResult
 logger = logging.getLogger(__name__)
 
 
+def _select_best_vote(candidates: List[AgentVote]) -> AgentVote:
+    """Select the best vote from N candidates.
+
+    Heuristic: pick the candidate whose action matches the plurality
+    of all candidates, with highest confidence as tiebreaker.
+
+    Example with 3 candidates: [BUY(0.7), BUY(0.9), SELL(0.6)]
+      → Plurality action = BUY (2 votes)
+      → Best = BUY(0.9) (highest confidence among BUY votes)
+    """
+    if len(candidates) == 1:
+        return candidates[0]
+
+    # Count actions
+    action_counts: Dict[str, int] = {}
+    for v in candidates:
+        action_counts[v.action] = action_counts.get(v.action, 0) + 1
+
+    # Find plurality action
+    plurality_action = max(action_counts, key=lambda a: action_counts[a])
+
+    # Among candidates with the plurality action, pick highest confidence
+    matching = [v for v in candidates if v.action == plurality_action]
+    return max(matching, key=lambda v: v.confidence)
+
+
 class AgentTeam:
     """
     Runs N agents in parallel and aggregates their votes.
@@ -79,6 +105,7 @@ class AgentTeam:
         context: Optional[Dict[str, Any]] = None,
         cache_key: Optional[str] = None,
         use_cache: bool = True,
+        sample_count: int = 1,
     ) -> ConsensusResult:
         """
         Evaluate a subject with all agents and return consensus.
@@ -89,10 +116,13 @@ class AgentTeam:
         consensus.
 
         Args:
-            subject:   The thing being evaluated (ticket, document, code, etc.)
-            context:   Optional metadata dict passed to each agent
-            cache_key: Key for vote caching (defaults to subject)
-            use_cache: Use cached votes if available
+            subject:     The thing being evaluated (ticket, document, code, etc.)
+            context:     Optional metadata dict passed to each agent
+            cache_key:   Key for vote caching (defaults to subject)
+            use_cache:   Use cached votes if available
+            sample_count: Number of candidate votes per agent (default 1).
+                When > 1, each agent generates N votes and the best one
+                (plurality action + highest confidence) is submitted.
 
         Returns:
             ConsensusResult with action, confidence, all votes, and
@@ -117,7 +147,7 @@ class AgentTeam:
             if summary is not None:
                 round_ctx["prior_summary"] = summary
 
-            votes = await self._collect_votes(subject, round_ctx)
+            votes = await self._collect_votes(subject, round_ctx, sample_count)
 
             # Generate summary after collecting votes
             if self.summarizer_fn is not None:
@@ -191,8 +221,30 @@ class AgentTeam:
             return ConsensusResult(action="DEFER", confidence=0.0, reason=str(e))
 
     async def _collect_votes(
+        self,
+        subject: str,
+        context: Dict[str, Any],
+        sample_count: int = 1,
+    ) -> List[AgentVote]:
+        if sample_count <= 1:
+            return await self._collect_single_votes(subject, context)
+
+        # Group sampling: each agent generates N candidates in parallel
+        agent_tasks = [
+            self._sample_agent(agent, subject, context, sample_count)
+            for agent in self.agents
+        ]
+        per_agent_candidates = await asyncio.gather(*agent_tasks)
+        best_votes = []
+        for candidates in per_agent_candidates:
+            if candidates:
+                best_votes.append(_select_best_vote(candidates))
+        return best_votes
+
+    async def _collect_single_votes(
         self, subject: str, context: Dict[str, Any]
     ) -> List[AgentVote]:
+        """Standard single-vote collection (original behavior)."""
         tasks = [
             (agent.agent_id, asyncio.create_task(agent.analyze(subject, context)))
             for agent in self.agents
@@ -208,6 +260,29 @@ class AgentTeam:
             except Exception as e:
                 logger.error(f"Agent '{agent_id}' failed: {e}")
         return votes
+
+    async def _sample_agent(
+        self,
+        agent: Any,
+        subject: str,
+        context: Dict[str, Any],
+        n: int,
+    ) -> List[AgentVote]:
+        """Collect N candidate votes from a single agent in parallel."""
+        tasks = [
+            asyncio.create_task(agent.analyze(subject, context))
+            for _ in range(n)
+        ]
+        candidates = []
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for res in results:
+            if isinstance(res, asyncio.TimeoutError):
+                logger.warning(f"Agent '{agent.agent_id}' sample timed out")
+            elif isinstance(res, Exception):
+                logger.debug(f"Agent '{agent.agent_id}' sample failed: {res}")
+            elif res:
+                candidates.append(res)
+        return candidates
 
     def _get_cached(self, key: str) -> Optional[ConsensusResult]:
         if key in self._result_cache:

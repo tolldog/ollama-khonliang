@@ -1,3 +1,4 @@
+from khonliang.consensus.credit import compute_agent_credits, suggest_weights
 from khonliang.consensus.engine import ConsensusEngine
 from khonliang.consensus.models import (
     AgentAction,
@@ -22,4 +23,6 @@ __all__ = [
     "ActionVocabulary",
     "OutcomeTracker",
     "OutcomeRecord",
+    "compute_agent_credits",
+    "suggest_weights",
 ]
