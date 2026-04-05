@@ -29,7 +29,7 @@ import math
 import sqlite3
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -43,11 +43,11 @@ CREATE TABLE IF NOT EXISTS blackboard_entries (
     embedding   TEXT,
     timestamp   REAL NOT NULL,
     ttl         REAL,
-    expired     INTEGER DEFAULT 0,
-    UNIQUE(section, key)
+    expired     INTEGER DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_bb_section ON blackboard_entries(section);
+CREATE INDEX IF NOT EXISTS idx_bb_section_key ON blackboard_entries(section, key);
 CREATE INDEX IF NOT EXISTS idx_bb_expired ON blackboard_entries(expired);
 CREATE INDEX IF NOT EXISTS idx_bb_timestamp ON blackboard_entries(timestamp);
 """
@@ -100,6 +100,7 @@ class Blackboard:
         self._persist_to = persist_to
         # In-memory store: {section: {key: BlackboardEntry}}
         self._sections: Dict[str, Dict[str, BlackboardEntry]] = {}
+        self._pending_expirations: List[tuple] = []
 
         if persist_to:
             self._ensure_schema()
@@ -187,6 +188,7 @@ class Blackboard:
             self._mark_expired(entries[k])
             del entries[k]
 
+        self._flush_expirations()
         return result
 
     def build_context(
@@ -205,6 +207,7 @@ class Blackboard:
                 self._mark_expired(entries[k])
                 del entries[k]
 
+        self._flush_expirations()
         lines: List[str] = []
         count = 0
 
@@ -234,8 +237,22 @@ class Blackboard:
         self._sections.pop(section, None)
 
     def clear(self) -> None:
-        """Remove all entries from all sections."""
+        """Remove all entries from all sections (memory + DB)."""
         self._sections.clear()
+        self._pending_expirations.clear()
+        if self._persist_to:
+            try:
+                conn = self._db_conn()
+                try:
+                    conn.execute(
+                        "UPDATE blackboard_entries SET expired = 1 "
+                        "WHERE expired = 0"
+                    )
+                    conn.commit()
+                finally:
+                    conn.close()
+            except Exception as e:
+                logger.warning("Blackboard DB clear failed: %s", e)
 
     @property
     def sections(self) -> List[str]:
@@ -317,7 +334,7 @@ class Blackboard:
         threshold: float = 0.7,
         limit: int = 5,
         section: Optional[str] = None,
-    ) -> List[tuple]:
+    ) -> List[Tuple[BlackboardEntry, float]]:
         """Find entries similar to the given embedding.
 
         Args:
@@ -411,54 +428,68 @@ class Blackboard:
             conn.close()
 
     def _persist_entry(self, entry: BlackboardEntry) -> None:
-        """Write or update an entry in the DB."""
-        conn = self._db_conn()
+        """Write entry to DB. Expires previous entry for same section/key
+        (preserving it for history) and inserts the new one."""
         try:
-            content_json = json.dumps(entry.content) if not isinstance(
-                entry.content, str
-            ) else entry.content
+            content_json = _serialize_content(entry.content)
             embedding_json = (
                 json.dumps(entry.embedding) if entry.embedding else None
             )
-            conn.execute(
-                """INSERT INTO blackboard_entries
-                   (agent_id, section, key, content, embedding, timestamp, ttl, expired)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, 0)
-                   ON CONFLICT(section, key) DO UPDATE SET
-                       agent_id=excluded.agent_id,
-                       content=excluded.content,
-                       embedding=excluded.embedding,
-                       timestamp=excluded.timestamp,
-                       ttl=excluded.ttl,
-                       expired=0""",
-                (
-                    entry.agent_id,
-                    entry.section,
-                    entry.key,
-                    content_json,
-                    embedding_json,
-                    entry.timestamp,
-                    entry.ttl,
-                ),
-            )
-            conn.commit()
-        finally:
-            conn.close()
+            conn = self._db_conn()
+            try:
+                # Expire previous entry (keeps it for history)
+                conn.execute(
+                    "UPDATE blackboard_entries SET expired = 1 "
+                    "WHERE section = ? AND key = ? AND expired = 0",
+                    (entry.section, entry.key),
+                )
+                # Insert new entry
+                conn.execute(
+                    "INSERT INTO blackboard_entries "
+                    "(agent_id, section, key, content, embedding, "
+                    "timestamp, ttl, expired) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, 0)",
+                    (
+                        entry.agent_id,
+                        entry.section,
+                        entry.key,
+                        content_json,
+                        embedding_json,
+                        entry.timestamp,
+                        entry.ttl,
+                    ),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.warning("Blackboard persist failed: %s", e)
 
     def _mark_expired(self, entry: BlackboardEntry) -> None:
         """Mark an entry as expired in the DB (keeps it for history)."""
         if not self._persist_to:
             return
-        conn = self._db_conn()
+        self._pending_expirations.append((entry.section, entry.key))
+
+    def _flush_expirations(self) -> None:
+        """Batch-write pending expirations to DB."""
+        if not self._persist_to or not self._pending_expirations:
+            return
         try:
-            conn.execute(
-                "UPDATE blackboard_entries SET expired = 1 "
-                "WHERE section = ? AND key = ?",
-                (entry.section, entry.key),
-            )
-            conn.commit()
-        finally:
-            conn.close()
+            conn = self._db_conn()
+            try:
+                for section, key in self._pending_expirations:
+                    conn.execute(
+                        "UPDATE blackboard_entries SET expired = 1 "
+                        "WHERE section = ? AND key = ? AND expired = 0",
+                        (section, key),
+                    )
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.warning("Blackboard expiration flush failed: %s", e)
+        self._pending_expirations.clear()
 
     def _find_entry(self, key_spec: str) -> Optional[BlackboardEntry]:
         """Find an entry by 'section:key' or just 'key'."""
@@ -496,6 +527,16 @@ class Blackboard:
             ttl=row["ttl"],
             embedding=embedding,
         )
+
+
+def _serialize_content(content: Any) -> str:
+    """Serialize content to a JSON string for DB storage."""
+    if isinstance(content, str):
+        return json.dumps(content)  # Wrap in quotes for consistent round-trip
+    try:
+        return json.dumps(content)
+    except (TypeError, ValueError):
+        return json.dumps(str(content))
 
 
 def _cosine_similarity(a: List[float], b: List[float]) -> float:
