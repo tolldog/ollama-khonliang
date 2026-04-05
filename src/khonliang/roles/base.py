@@ -19,10 +19,11 @@ Example — a customer support triage role:
 from __future__ import annotations
 
 import logging
+import re
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from khonliang.pool import ModelPool
 
@@ -134,28 +135,40 @@ class BaseRole(ABC):
         raw = self.build_context(message, context)
         return self.enforce_budget(raw)
 
-    def enforce_budget(self, context: str) -> str:
+    def enforce_budget(
+        self, context: str, strategy: str = "truncate"
+    ) -> str:
         """
-        Truncate context to fit within the token budget.
+        Fit context within the token budget.
 
-        Uses chars/4 heuristic for token estimation. Keeps the most
-        recent content, truncates from the beginning.
+        Args:
+            context: Raw context string
+            strategy: Extraction strategy:
+                "truncate" — keep most recent content, cut from start (default)
+                "sections" — extract key document sections (abstract, intro,
+                    methods, results, conclusion) and allocate budget across them
 
         Returns context unchanged if no budget is set or context fits.
         """
         if not self.max_context_tokens:
             return context
 
-        # Heuristic: ~4 chars per token
         max_chars = self.max_context_tokens * 4
 
         if len(context) <= max_chars:
             return context
 
-        # Truncate from the beginning, keep the most recent content
-        truncated = context[-max_chars:]
+        if strategy == "sections":
+            return _extract_sections(context, max_chars)
 
-        # Try to break at a newline to avoid mid-sentence truncation
+        if strategy != "truncate":
+            raise ValueError(
+                f"Unknown enforce_budget strategy {strategy!r}. "
+                "Use 'truncate' or 'sections'."
+            )
+
+        # Default: truncate from the beginning, keep most recent
+        truncated = context[-max_chars:]
         first_newline = truncated.find("\n")
         if first_newline > 0 and first_newline < len(truncated) // 4:
             truncated = truncated[first_newline + 1:]
@@ -217,3 +230,118 @@ class BaseRole(ABC):
         response = await self.client.generate(prompt=prompt, system=system, **kwargs)
         elapsed_ms = int((time.time() - start) * 1000)
         return response, elapsed_ms
+
+
+# ------------------------------------------------------------------
+# Section-aware context extraction (KH-12)
+# ------------------------------------------------------------------
+
+# Heading patterns for detecting document structure
+_HEADING_RE = re.compile(
+    r"^(?:"
+    r"#{1,3}\s+|"               # Markdown: ## Heading
+    r"[A-Z][A-Z ]{2,}[.:!]?$|" # ALL CAPS LINE (optional trailing punctuation)
+    r"\d+\.\s+[A-Z]"            # 1. Section Name
+    r")",
+)
+
+# Section names to look for (case-insensitive)
+_SECTION_PRIORITIES: List[Tuple[str, float]] = [
+    ("abstract", 0.25),
+    ("introduction", 0.20),
+    ("conclusion", 0.20),
+    ("results", 0.15),
+    ("method", 0.10),
+    ("discussion", 0.10),
+]
+
+
+def _extract_sections(text: str, max_chars: int) -> str:
+    """Extract key sections from a structured document.
+
+    Detects headings (markdown, numbered, ALL CAPS), then allocates
+    the character budget across high-priority sections.
+
+    Falls back to first-chunk + last-chunk if no structure is detected.
+    """
+    sections = _split_into_sections(text)
+
+    if len(sections) < 3:
+        # No clear structure — take first and last chunks
+        overhead = len("[Extracted first + last chunks]\n\n\n[...]\n\n")
+        usable = max(0, max_chars - overhead)
+        half = usable // 2
+        result = text[:half] + "\n\n[...]\n\n" + text[-half:]
+        return f"[Extracted first + last chunks]\n{result}"
+
+    # Reserve budget for formatting overhead
+    overhead_per_section = 20  # "## SectionName\n"
+    prefix_overhead = 40
+    usable = max(0, max_chars - prefix_overhead)
+
+    # Allocate budget to priority sections
+    selected: List[Tuple[str, str]] = []
+    remaining = usable
+
+    for target_name, budget_frac in _SECTION_PRIORITIES:
+        budget = int(usable * budget_frac)
+        for sec_name, sec_text in sections:
+            if target_name in sec_name.lower() and budget > 0:
+                avail = min(budget, remaining - overhead_per_section)
+                if avail <= 0:
+                    break
+                chunk = sec_text[:avail]
+                if chunk:
+                    selected.append((sec_name, chunk))
+                    remaining -= len(chunk)
+                break
+
+    # If budget remains, fill with other sections
+    used_names = {name for name, _ in selected}
+    for sec_name, sec_text in sections:
+        if remaining <= 0:
+            break
+        if sec_name not in used_names:
+            chunk = sec_text[:remaining]
+            if chunk:
+                selected.append((sec_name, chunk))
+                remaining -= len(chunk)
+
+    # Format
+    parts = []
+    for name, content in selected:
+        parts.append(f"## {name}\n{content}")
+
+    return f"[Extracted {len(selected)} sections]\n\n" + "\n\n".join(parts)
+
+
+def _split_into_sections(text: str) -> List[Tuple[str, str]]:
+    """Split text into (heading, body) pairs based on detected headings."""
+    lines = text.split("\n")
+    sections: List[Tuple[str, str]] = []
+    current_heading = "preamble"
+    current_lines: List[str] = []
+
+    for line in lines:
+        stripped = line.strip()
+        if _HEADING_RE.match(stripped) and len(stripped) < 100:
+            # Save current section
+            if current_lines:
+                body = "\n".join(current_lines).strip()
+                if body:
+                    sections.append((current_heading, body))
+            # Start new section — normalise the heading name:
+            #   strip Markdown '#', numeric prefix (1. ), and trailing punctuation
+            name = stripped.lstrip("#").strip().rstrip(".:!")
+            current_heading = re.sub(r"^\d+\.\s*", "", name).strip()
+            current_lines = []
+        else:
+            current_lines.append(line)
+
+    # Save last section
+    if current_lines:
+        body = "\n".join(current_lines).strip()
+        if body:
+            sections.append((current_heading, body))
+
+    return sections
