@@ -161,6 +161,12 @@ class BaseRole(ABC):
         if strategy == "sections":
             return _extract_sections(context, max_chars)
 
+        if strategy != "truncate":
+            raise ValueError(
+                f"Unknown enforce_budget strategy {strategy!r}. "
+                "Use 'truncate' or 'sections'."
+            )
+
         # Default: truncate from the beginning, keep most recent
         truncated = context[-max_chars:]
         first_newline = truncated.find("\n")
@@ -233,11 +239,10 @@ class BaseRole(ABC):
 # Heading patterns for detecting document structure
 _HEADING_RE = re.compile(
     r"^(?:"
-    r"#{1,3}\s+|"           # Markdown: ## Heading
-    r"[A-Z][A-Z ]{2,}$|"   # ALL CAPS LINE
-    r"\d+\.\s+[A-Z]"       # 1. Section Name
+    r"#{1,3}\s+|"               # Markdown: ## Heading
+    r"[A-Z][A-Z ]{2,}[.:!]?$|" # ALL CAPS LINE (optional trailing punctuation)
+    r"\d+\.\s+[A-Z]"            # 1. Section Name
     r")",
-    re.MULTILINE,
 )
 
 # Section names to look for (case-insensitive)
@@ -315,8 +320,10 @@ def _split_into_sections(text: str) -> List[Tuple[str, str]]:
                 body = "\n".join(current_lines).strip()
                 if body:
                     sections.append((current_heading, body))
-            # Start new section
-            current_heading = stripped.lstrip("#").strip().rstrip(".")
+            # Start new section — normalise the heading name:
+            #   strip Markdown '#', numeric prefix (1. ), and trailing punctuation
+            name = stripped.lstrip("#").strip().rstrip(".:!")
+            current_heading = re.sub(r"^\d+\.\s*", "", name).strip()
             current_lines = []
         else:
             current_lines.append(line)
