@@ -5,6 +5,7 @@ from khonliang.consensus.models import (
     AgentVote,
     ConsensusResult,
 )
+from khonliang.consensus.credit import compute_agent_credits, suggest_weights
 from khonliang.consensus.outcomes import OutcomeRecord, OutcomeTracker
 from khonliang.consensus.team import AgentTeam
 from khonliang.consensus.vocabulary import ActionVocabulary
@@ -22,4 +23,6 @@ __all__ = [
     "ActionVocabulary",
     "OutcomeTracker",
     "OutcomeRecord",
+    "compute_agent_credits",
+    "suggest_weights",
 ]
