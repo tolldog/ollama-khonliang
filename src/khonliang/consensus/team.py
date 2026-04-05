@@ -59,7 +59,7 @@ def _select_best_vote(candidates: List[AgentVote]) -> AgentVote:
         action_counts[v.action] = action_counts.get(v.action, 0) + 1
 
     # Find plurality action
-    plurality_action = max(action_counts, key=action_counts.get)  # type: ignore[arg-type]
+    plurality_action = max(action_counts, key=lambda a: action_counts[a])
 
     # Among candidates with the plurality action, pick highest confidence
     matching = [v for v in candidates if v.action == plurality_action]

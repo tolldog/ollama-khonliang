@@ -17,7 +17,7 @@ Usage:
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from khonliang.consensus.models import AgentVote, ConsensusResult
 from khonliang.consensus.outcomes import OutcomeTracker
@@ -60,7 +60,7 @@ def compute_agent_credits(
         return None
 
     # Collect all agent IDs seen across records
-    all_agents: set = set()
+    all_agents: Set[str] = set()
     for r in records:
         for v in r.votes:
             aid = v.get("agent_id")
@@ -156,6 +156,7 @@ def suggest_weights(
     Returns:
         Suggested weights (sum to 1.0), or None if insufficient data.
     """
+    blend = max(0.0, min(1.0, blend))
     credits = compute_agent_credits(
         tracker, current_weights, veto_blocks, min_samples,
     )

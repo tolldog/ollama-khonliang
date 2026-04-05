@@ -8,7 +8,7 @@ A VETO from any agent blocks the decision regardless of other votes.
 import logging
 import re
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from khonliang.consensus.models import AgentVote, ConsensusResult
 
@@ -34,7 +34,7 @@ class ConsensusEngine:
         veto_blocks: bool = True,
         min_confidence: float = 0.0,
         judge_fn: Optional[Callable[[List[AgentVote]], Optional[AgentVote]]] = None,
-        debate_orchestrator: Optional[object] = None,
+        debate_orchestrator: Optional[Any] = None,
         debate_threshold: float = 0.15,
     ):
         """
