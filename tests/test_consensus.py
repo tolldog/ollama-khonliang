@@ -1,6 +1,5 @@
 """Tests for ConsensusEngine vote validation, OutcomeTracker, debate, and sampling."""
 
-import asyncio
 import os
 import tempfile
 

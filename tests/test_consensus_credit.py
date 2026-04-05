@@ -9,7 +9,6 @@ from khonliang.consensus.credit import compute_agent_credits, suggest_weights
 from khonliang.consensus.models import AgentVote, ConsensusResult
 from khonliang.consensus.outcomes import OutcomeTracker
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -265,10 +264,7 @@ def test_suggest_weights_blended_between_current_and_credits():
         assert blended is not None
 
         for agent_id in ("a1", "a2"):
-            lo = min(current[agent_id], credits[agent_id])
-            hi = max(current[agent_id], credits[agent_id])
-            # blended must sit inside [lo, hi] (before renormalization it does;
-            # renormalization preserves relative order so it stays bounded).
+            # Blended weight must stay non-negative after renormalization
             assert blended[agent_id] >= 0.0
     finally:
         os.unlink(path)
