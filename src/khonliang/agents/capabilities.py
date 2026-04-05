@@ -226,10 +226,14 @@ class CapabilityRegistry:
             logger.debug("No embedding for task routing — use find() for exact match")
             return []
 
+        # Clamp inputs
+        threshold = max(0.0, min(1.0, threshold))
+        limit = max(1, limit)
+
         # Score each agent by best capability match
         agent_scores: Dict[str, float] = {}
         for agent_id, caps in self._capabilities.items():
-            best = 0.0
+            best = -1.0  # Cosine similarity can be negative
             for cap in caps:
                 if cap.embedding is None:
                     continue
