@@ -5,6 +5,7 @@ from khonliang.consensus.models import (
     AgentVote,
     ConsensusResult,
 )
+from khonliang.consensus.outcomes import OutcomeRecord, OutcomeTracker
 from khonliang.consensus.team import AgentTeam
 from khonliang.consensus.vocabulary import ActionVocabulary
 from khonliang.consensus.weights import AdaptiveWeightManager, WeightScheduler
@@ -19,4 +20,6 @@ __all__ = [
     "AdaptiveWeightManager",
     "WeightScheduler",
     "ActionVocabulary",
+    "OutcomeTracker",
+    "OutcomeRecord",
 ]

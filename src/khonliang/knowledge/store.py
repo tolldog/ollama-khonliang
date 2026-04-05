@@ -175,16 +175,24 @@ class KnowledgeStore:
     def _ensure_schema(self) -> None:
         conn = self._conn()
         try:
+            # Migrate existing DBs first: add status column before schema
+            # references it (CREATE TABLE IF NOT EXISTS won't re-create,
+            # so existing tables need the column added via ALTER).
+            table_exists = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='knowledge'"
+            ).fetchone()
+            if table_exists:
+                cols = [row[1] for row in conn.execute("PRAGMA table_info(knowledge)")]
+                if "status" not in cols:
+                    conn.execute(
+                        "ALTER TABLE knowledge ADD COLUMN status TEXT NOT NULL DEFAULT 'active'"
+                    )
+                    conn.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_knowledge_status ON knowledge(status)"
+                    )
+                    conn.commit()
+
             conn.executescript(_SCHEMA)
-            # Migrate existing DBs: add status column if missing
-            cols = [row[1] for row in conn.execute("PRAGMA table_info(knowledge)")]
-            if "status" not in cols:
-                conn.execute(
-                    "ALTER TABLE knowledge ADD COLUMN status TEXT NOT NULL DEFAULT 'active'"
-                )
-                conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_knowledge_status ON knowledge(status)"
-                )
             conn.commit()
         finally:
             conn.close()
