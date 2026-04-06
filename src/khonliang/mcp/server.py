@@ -77,22 +77,39 @@ class KhonliangMCPServer:
 
         @mcp.tool()
         def knowledge_search(
-            query: str, scope: str = "global", max_results: int = 5
+            query: str,
+            scope: str = "global",
+            max_results: int = 5,
+            detail: str = "brief",
         ) -> str:
-            """Search the knowledge store for entries matching a query."""
+            """Search the knowledge store. Returns compact results by default.
+
+            detail="brief": one line per result (id | title)
+            detail="full": includes content preview, confidence, scope
+            """
+            from khonliang.mcp.compact import compact_list, truncate
+
             results = store.search(query, scope=scope, limit=max_results)
             if not results:
-                return f"No knowledge entries found for: {query}"
-            lines = [f"Found {len(results)} entries:"]
-            for entry in results:
-                tier_val = entry.tier.value if hasattr(entry.tier, "value") else entry.tier
-                tier = f"Tier {tier_val}"
-                lines.append(
-                    f"\n[{entry.id}] {tier} — {entry.title}\n"
-                    f"  Confidence: {entry.confidence:.0%} | Scope: {entry.scope}\n"
-                    f"  {entry.content[:200]}{'...' if len(entry.content) > 200 else ''}"
-                )
-            return "\n".join(lines)
+                return f"No entries for: {query}"
+
+            if detail == "full":
+                lines = [f"{len(results)} entries:"]
+                for e in results:
+                    tier = e.tier.value if hasattr(e.tier, "value") else e.tier
+                    lines.append(
+                        f"[{e.id}] {e.title} "
+                        f"(T{tier}, {e.confidence:.0%}, {e.scope})\n"
+                        f"  {truncate(e.content, 150)}"
+                    )
+                return "\n".join(lines)
+
+            return compact_list(
+                items=results,
+                format_fn=lambda e: f"{e.id} | {e.title}",
+                header=f"{len(results)} entries:",
+                limit=max_results,
+            )
 
         @mcp.tool()
         def knowledge_ingest(
@@ -118,7 +135,7 @@ class KhonliangMCPServer:
 
         @mcp.tool()
         def knowledge_context(
-            query: str, scope: str = "global", max_chars: int = 2000
+            query: str, scope: str = "global", max_chars: int = 1000
         ) -> str:
             """Build a context string from knowledge for LLM injection."""
             return store.build_context(
@@ -147,21 +164,24 @@ class KhonliangMCPServer:
 
         @mcp.tool()
         def triple_query(
-            subject: str = "", predicate: str = "", object: str = ""
+            subject: str = "",
+            predicate: str = "",
+            object: str = "",
+            limit: int = 10,
         ) -> str:
-            """Query semantic triples by any combination of fields."""
+            """Query triples. Compact by default: subject predicate object (confidence)."""
             results = triples.get(
                 subject=subject or None,
                 predicate=predicate or None,
                 obj=object or None,
+                limit=limit,
             )
             if not results:
-                return "No matching triples found."
-            lines = [f"Found {len(results)} triples:"]
+                return "No triples found."
+            lines = [f"{len(results)} triples:"]
             for t in results:
                 lines.append(
-                    f"  {t.subject} {t.predicate} {t.object} "
-                    f"({t.confidence:.0%}, source={t.source})"
+                    f"{t.subject} {t.predicate} {t.object} ({t.confidence:.0%})"
                 )
             return "\n".join(lines)
 
@@ -194,16 +214,26 @@ class KhonliangMCPServer:
             return f"Posted to {section}/{key}{ttl_str}"
 
         @mcp.tool()
-        def blackboard_read(section: str, key: str = "") -> str:
-            """Read entries from a blackboard section."""
+        def blackboard_read(
+            section: str, key: str = "", detail: str = "brief"
+        ) -> str:
+            """Read blackboard entries. brief=keys+preview, full=with content."""
+            from khonliang.mcp.compact import truncate
+
             entries = board.read(section, key=key or None)
             if not entries:
                 if key:
-                    return f"Key '{key}' not found in section '{section}'"
-                return f"No entries in section '{section}'"
-            lines = [f"Section '{section}' ({len(entries)} entries):"]
+                    return f"Key '{key}' not found in {section}"
+                return f"No entries in {section}"
+            if detail == "full":
+                lines = [f"{section} ({len(entries)}):"]
+                for k, v in entries.items():
+                    lines.append(f"  [{k}]: {v}")
+                return "\n".join(lines)
+            # Brief: keys + truncated preview
+            lines = [f"{section} ({len(entries)}):"]
             for k, v in entries.items():
-                lines.append(f"  [{k}]: {v}")
+                lines.append(f"  {k}: {truncate(str(v), 60)}")
             return "\n".join(lines)
 
         @mcp.tool()

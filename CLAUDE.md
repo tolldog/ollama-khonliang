@@ -96,6 +96,20 @@ The library is layered:
 - `PersonalityRegistry` is a module-level singleton via `get_registry()`. Entries loaded from file override defaults with the same id.
 - `ScopedRetriever` databases require two additional tables beyond `rag_documents`: `rag_scoped_documents` (with FTS5 virtual table `rag_scoped_fts`) and `agent_conversations` — see `rag/scoped.py` module docstring for DDL.
 
+## MCP Tool Response Convention
+
+All MCP tool responses must be token-efficient. External agents (Claude, Codex, etc.) pay per token — verbose output wastes their context window and money.
+
+**Rules:**
+- No preamble ("Here are the results:", "I found the following:")
+- No markdown headers in brief mode
+- Data only: `id | title | score` not paragraphs
+- Default to brief. Agent asks for `detail="full"` when needed
+- Use `khonliang.mcp.compact` helpers for consistent formatting
+- Every word must earn its place — if removing it doesn't lose information, remove it
+
+See `src/khonliang/mcp/compact.py` for helpers and design principles.
+
 ## Project Origin
 
 This library was extracted from the [autostock](../autostock/) trading platform to provide a generic, domain-agnostic agent orchestration framework. All trading-specific logic remains in autostock; this library provides the reusable infrastructure.
