@@ -35,7 +35,6 @@ from typing import Any, Callable, List
 # Default limits for MCP tools
 DEFAULT_LIST_LIMIT = 10
 DEFAULT_SEARCH_LIMIT = 5
-DEFAULT_CONTEXT_CHARS = 2000
 DEFAULT_PREVIEW_CHARS = 80
 
 
@@ -84,12 +83,12 @@ def compact_entry(
 
 
 def truncate(text: str, max_chars: int = DEFAULT_PREVIEW_CHARS) -> str:
-    """Truncate text to max_chars, adding ellipsis if truncated."""
+    """Truncate text to max_chars with ellipsis. Normalizes newlines first."""
     if not text:
         return ""
+    text = text.replace("\r\n", " ").replace("\r", " ").replace("\n", " ").strip()
     if max_chars < 4:
         return text[:max_chars]
-    text = text.replace("\n", " ").strip()
     if len(text) <= max_chars:
         return text
     return text[: max_chars - 3] + "..."
@@ -99,10 +98,7 @@ def compact_kv(data: dict, max_value_len: int = 60) -> str:
     """Format a dict as compact key=value pairs on one line."""
     parts = []
     for k, v in data.items():
-        v_str = str(v)
-        if len(v_str) > max_value_len:
-            v_str = v_str[: max_value_len - 3] + "..."
-        parts.append(f"{k}={v_str}")
+        parts.append(f"{k}={truncate(str(v), max_value_len)}")
     return ", ".join(parts)
 
 
@@ -111,7 +107,7 @@ def brief_or_full(
     full_fn: Callable[[], str],
     detail: str = "brief",
 ) -> str:
-    """Switch between brief and full output based on detail parameter."""
+    """Switch between brief/full output. Exported for downstream MCP servers."""
     if detail == "full":
         return full_fn()
     return brief_fn()
