@@ -86,7 +86,7 @@ def truncate(text: str, max_chars: int = DEFAULT_PREVIEW_CHARS) -> str:
     """Truncate text to max_chars with ellipsis. Normalizes newlines first."""
     if not text:
         return ""
-    text = text.replace("\n", " ").strip()
+    text = text.replace("\r\n", " ").replace("\r", " ").replace("\n", " ").strip()
     if max_chars < 4:
         return text[:max_chars]
     if len(text) <= max_chars:
