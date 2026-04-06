@@ -96,9 +96,10 @@ class KhonliangMCPServer:
             if detail == "full":
                 lines = [f"{len(results)} entries:"]
                 for e in results:
+                    tier = e.tier.value if hasattr(e.tier, "value") else e.tier
                     lines.append(
                         f"[{e.id}] {e.title} "
-                        f"(T{e.tier.value}, {e.confidence:.0%})\n"
+                        f"(T{tier}, {e.confidence:.0%}, {e.scope})\n"
                         f"  {truncate(e.content, 150)}"
                     )
                 return "\n".join(lines)
@@ -216,12 +217,14 @@ class KhonliangMCPServer:
         def blackboard_read(
             section: str, key: str = "", detail: str = "brief"
         ) -> str:
-            """Read blackboard entries. brief=keys only, full=with content."""
+            """Read blackboard entries. brief=keys+preview, full=with content."""
             from khonliang.mcp.compact import truncate
 
             entries = board.read(section, key=key or None)
             if not entries:
-                return f"Empty: {section}" + (f"/{key}" if key else "")
+                if key:
+                    return f"Key '{key}' not found in {section}"
+                return f"No entries in {section}"
             if detail == "full":
                 lines = [f"{section} ({len(entries)}):"]
                 for k, v in entries.items():

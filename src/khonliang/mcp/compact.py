@@ -2,14 +2,11 @@
 Compact MCP response helpers — minimize token usage in agent-facing tools.
 
 Problem: MCP tools that return verbose markdown eat agent context windows.
-An agent calling reading_list + paper_context + feature_requests can burn
-thousands of tokens on formatting before doing any real work.
-
 Solution: compact-by-default responses with opt-in expansion.
 
-Usage in MCP tools:
+Usage:
 
-    from khonliang.mcp.compact import compact_list, compact_entry, truncate
+    from khonliang.mcp.compact import compact_list, truncate
 
     @mcp.tool()
     def my_search(query: str, limit: int = 5, detail: str = "brief") -> str:
@@ -46,17 +43,7 @@ def compact_list(
     limit: int = DEFAULT_LIST_LIMIT,
     empty_msg: str = "None found.",
 ) -> str:
-    """Format a list of items compactly for agent consumption.
-
-    Each item rendered as one line via format_fn. Shows count + items.
-
-    Args:
-        items: List of objects to format
-        format_fn: Callable that produces one line per item
-        header: Optional header line (e.g., "5 results for 'query'")
-        limit: Max items to show
-        empty_msg: Message when items is empty
-    """
+    """Format a list compactly. One line per item via format_fn."""
     if not items:
         return empty_msg
 
@@ -82,16 +69,8 @@ def compact_entry(
     preview: str = "",
     max_preview: int = DEFAULT_PREVIEW_CHARS,
 ) -> str:
-    """Format a single entry as a compact one-liner.
-
-    Format: "id | title [status] (score)"
-    """
-    parts = [entry_id, title]
-    if status:
-        parts.append(f"[{status}]")
-    if score > 0:
-        parts.append(f"({score:.0%})")
-    line = " | ".join(parts[:2])
+    """Format a single entry as "id | title [status] (score) — preview"."""
+    line = f"{entry_id} | {title}"
     if status:
         line += f" [{status}]"
     if score > 0:
@@ -105,6 +84,8 @@ def truncate(text: str, max_chars: int = DEFAULT_PREVIEW_CHARS) -> str:
     """Truncate text to max_chars, adding ellipsis if truncated."""
     if not text:
         return ""
+    if max_chars < 4:
+        return text[:max_chars]
     text = text.replace("\n", " ").strip()
     if len(text) <= max_chars:
         return text
@@ -117,7 +98,7 @@ def compact_kv(data: dict, max_value_len: int = 60) -> str:
     for k, v in data.items():
         v_str = str(v)
         if len(v_str) > max_value_len:
-            v_str = v_str[:max_value_len - 3] + "..."
+            v_str = v_str[: max_value_len - 3] + "..."
         parts.append(f"{k}={v_str}")
     return ", ".join(parts)
 
@@ -127,13 +108,7 @@ def brief_or_full(
     full_fn: Callable[[], str],
     detail: str = "brief",
 ) -> str:
-    """Switch between brief and full output based on detail parameter.
-
-    Args:
-        brief_fn: Callable returning compact output
-        full_fn: Callable returning rich output
-        detail: "brief" (default) or "full"
-    """
+    """Switch between brief and full output based on detail parameter."""
     if detail == "full":
         return full_fn()
     return brief_fn()
