@@ -8,19 +8,24 @@ specific arguments rather than receiving flat vote summaries.
 Debate trigger conditions:
     - Two agents vote differently, both with confidence > threshold
     - An agent votes VETO
-    - Max 2 rounds (configurable). No convergence -> ConsensusEngine decides
+    - Max 2 rounds (configurable). No convergence -> Adjudicator decides (if configured)
 
 Usage:
-    orchestrator = DebateOrchestrator(gateway, agents)
-    updated_votes = await orchestrator.run_debate(votes, subject, context)
+    orchestrator = DebateOrchestrator(agents=agents, adjudicator=my_adj)
+    updated_votes, adjudicated = await orchestrator.run_debate(votes, subject, ctx)
 """
 
 import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
-from khonliang.consensus.models import AgentVote
+from khonliang.consensus.models import AgentVote, ConsensusResult
 from khonliang.gateway.messages import AgentMessage
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from khonliang.debate.adjudicator import BaseAdjudicator
 
 logger = logging.getLogger(__name__)
 
@@ -55,10 +60,12 @@ class DebateOrchestrator:
         gateway: Optional[Any] = None,
         agents: Optional[Dict[str, Any]] = None,
         config: Optional[DebateConfig] = None,
+        adjudicator: Optional["BaseAdjudicator"] = None,
     ):
         self.gateway = gateway
         self.agents = agents or {}
         self.config = config or DebateConfig()
+        self.adjudicator = adjudicator
         self._debate_history: List[Dict[str, Any]] = []
 
     def detect_disagreement(
@@ -156,13 +163,14 @@ class DebateOrchestrator:
         votes: List[AgentVote],
         subject: str,
         context: Optional[Any] = None,
-    ) -> List[AgentVote]:
+    ) -> tuple[List[AgentVote], Optional[ConsensusResult]]:
         """
         Run a debate if disagreement is detected.
 
-        If no disagreement or debate is disabled, returns original votes.
-        Otherwise runs up to max_rounds of challenge/response, updating
-        votes with each agent's reconsidered position.
+        If no disagreement or debate is disabled, returns (original_votes, None).
+        Otherwise runs up to max_rounds of challenge/response. If debate
+        fails to resolve and an adjudicator is configured, returns an
+        adjudicated ConsensusResult as the second element.
 
         Args:
             votes: Original agent votes
@@ -170,15 +178,16 @@ class DebateOrchestrator:
             context: Optional additional context
 
         Returns:
-            Updated votes (may be unchanged if no debate or no mind changes)
+            Tuple of (updated_votes, optional_adjudicated_result).
+            Second element is non-None only when adjudicator resolved the conflict.
         """
         if not self.config.enabled:
-            return votes
+            return votes, None
 
         disagreement = self.detect_disagreement(votes)
         if disagreement is None:
             logger.debug(f"No disagreement detected for '{subject[:40]}'")
-            return votes
+            return votes, None
 
         vote_a, vote_b = disagreement
         logger.info(
@@ -253,17 +262,35 @@ class DebateOrchestrator:
                 )
                 break
 
+        resolved = vote_a.action == vote_b.action
+        adjudicated_result = None
+
+        # If unresolved and adjudicator available, apply domain criteria
+        if not resolved and self.adjudicator is not None:
+            logger.info(
+                f"Debate unresolved for '{subject[:40]}', invoking adjudicator"
+            )
+            from khonliang.debate.adjudicator import AdjudicationResult
+
+            adj_result = self.adjudicator.adjudicate(
+                updated_votes, subject, context
+            )
+            adjudicated_result = adj_result.to_consensus_result(
+                updated_votes, debate_rounds=rounds_completed
+            )
+
         self._debate_history.append(
             {
                 "subject": subject[:80],
                 "agent_a": vote_a.agent_id,
                 "agent_b": vote_b.agent_id,
                 "rounds": rounds_completed,
-                "resolved": vote_a.action == vote_b.action,
+                "resolved": resolved,
+                "adjudicated": adjudicated_result is not None,
             }
         )
 
-        return updated_votes
+        return updated_votes, adjudicated_result
 
     async def _send_challenge(
         self,
@@ -335,12 +362,15 @@ class DebateOrchestrator:
         """Return aggregate debate statistics and current config."""
         total = len(self._debate_history)
         resolved = sum(1 for d in self._debate_history if d["resolved"])
+        adjudicated = sum(1 for d in self._debate_history if d.get("adjudicated"))
         return {
             "total_debates": total,
             "resolved": resolved,
-            "unresolved": total - resolved,
-            "resolution_rate": resolved / total if total > 0 else 0,
+            "adjudicated": adjudicated,
+            "unresolved": total - resolved - adjudicated,
+            "resolution_rate": (resolved + adjudicated) / total if total > 0 else 0,
             "enabled": self.config.enabled,
+            "adjudicator_enabled": self.adjudicator is not None,
             "max_rounds": self.config.max_rounds,
             "disagreement_threshold": self.config.disagreement_threshold,
         }
