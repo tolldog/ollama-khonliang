@@ -25,6 +25,9 @@ Design principles:
     3. Consistent limits — small defaults (5-10), not 50-100
     4. Structured over narrative — "id | title | score" not paragraphs
     5. Truncation-safe — always cap per-item length
+    6. Caveman rule — every token in a response costs money. Write tool
+       outputs like a caveman: short words, no filler, no preamble,
+       no "Here are the results:", no markdown flourishes. Data only.
 """
 
 from typing import Any, Callable, List
