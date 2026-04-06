@@ -26,7 +26,7 @@ Usage:
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, Optional
 
 from khonliang.consensus.models import AgentVote
 from khonliang.debate.adjudicator import AdjudicationResult, BaseAdjudicator
@@ -99,8 +99,8 @@ class GRAPipeline:
     def __init__(
         self,
         generate_fn: Callable[..., Awaitable[Dict[str, Any]]],
-        review_fn: Callable[..., Awaitable[Dict[str, Any]]],
-        adjudicator: BaseAdjudicator,
+        review_fn: Optional[Callable[..., Awaitable[Dict[str, Any]]]] = None,
+        adjudicator: Optional[BaseAdjudicator] = None,
         verdict_key: str = "verdict",
         agrees_key: str = "agrees",
         confidence_key: str = "confidence",
@@ -108,8 +108,10 @@ class GRAPipeline:
         """
         Args:
             generate_fn: Async function that produces an assessment dict
-            review_fn: Async function that critiques the assessment
+            review_fn: Async function that critiques the assessment (optional;
+                       if None, generator result is returned directly)
             adjudicator: BaseAdjudicator subclass for conflict resolution
+                         (optional; if None, disagreements return reviewer verdict)
             verdict_key: Key in assessment/review dicts holding the verdict
             agrees_key: Key in review dict indicating agreement (bool)
             confidence_key: Key in dicts holding confidence float
@@ -144,6 +146,17 @@ class GRAPipeline:
             f"for '{subject[:40]}'"
         )
 
+        # Generator-only path: no reviewer configured
+        if self.review_fn is None:
+            return GRAResult(
+                verdict=gen_verdict,
+                confidence=gen_confidence,
+                assessment=assessment,
+                review=None,
+                adjudication=None,
+                resolved_by="generator",
+            )
+
         # Step 2: Reviewer
         review = await self.review_fn(subject, assessment, context)
         rev_agrees = review.get(self.agrees_key, False)
@@ -166,7 +179,18 @@ class GRAPipeline:
                 resolved_by="consensus",
             )
 
-        # Step 4: Disagreement -> Adjudicator
+        # Step 4: Disagreement -> Adjudicator (if configured)
+        if self.adjudicator is None:
+            # No adjudicator: return reviewer's verdict
+            return GRAResult(
+                verdict=rev_verdict,
+                confidence=rev_confidence,
+                assessment=assessment,
+                review=review,
+                adjudication=None,
+                resolved_by="reviewer",
+            )
+
         logger.info(
             f"Disagreement: Generator={gen_verdict}, "
             f"Reviewer={rev_verdict}. Invoking adjudicator."

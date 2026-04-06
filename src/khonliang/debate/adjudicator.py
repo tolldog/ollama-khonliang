@@ -74,13 +74,24 @@ class AdjudicationResult:
         votes: List[AgentVote],
         debate_rounds: int = 0,
     ) -> ConsensusResult:
-        """Convert to a ConsensusResult for downstream compatibility."""
+        """Convert to a ConsensusResult for downstream compatibility.
+
+        Note: criteria scores go into the reason string, not scores dict,
+        because ConsensusResult.scores holds per-action weighted scores.
+        """
+        criteria_summary = ", ".join(
+            f"{k}={v:.2f}" for k, v in self.criteria.items()
+        )
+        reason = f"[adjudicated] {self.reason}"
+        if criteria_summary:
+            reason += f" (criteria: {criteria_summary})"
+
         return ConsensusResult(
             action=self.action,
             confidence=self.confidence,
             votes=votes,
-            scores=self.criteria,
-            reason=f"[adjudicated] {self.reason}",
+            scores={self.action: self.confidence},
+            reason=reason,
             debate_rounds=debate_rounds,
         )
 

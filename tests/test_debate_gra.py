@@ -108,6 +108,10 @@ class TestAdjudicationResult:
         assert cr.debate_rounds == 2
         assert "[adjudicated]" in cr.reason
         assert len(cr.votes) == 2
+        # scores should be per-action, not per-criterion
+        assert cr.scores == {"APPROVE": 0.85}
+        # criteria should be in reason string
+        assert "score=1.00" in cr.reason
 
 
 # ---------------------------------------------------------------------------
@@ -324,6 +328,36 @@ class TestGRAPipeline:
         assert ctx_log[0] == ("generate", {"force_reject": True})
         assert ctx_log[1] == ("review", {"force_reject": True})
         assert result.verdict == "REJECT"
+
+    @pytest.mark.asyncio
+    async def test_generator_only_path(self):
+        async def generate(subject, context=None):
+            return {"verdict": "go", "confidence": 0.9, "reasoning": "ok"}
+
+        pipeline = GRAPipeline(generate_fn=generate)
+
+        result = await pipeline.evaluate("test")
+
+        assert result.resolved_by == "generator"
+        assert result.verdict == "go"
+        assert result.review is None
+        assert result.adjudication is None
+
+    @pytest.mark.asyncio
+    async def test_no_adjudicator_returns_reviewer_verdict(self):
+        async def generate(subject, context=None):
+            return {"verdict": "yes", "confidence": 0.9, "reasoning": "ok"}
+
+        async def review(subject, assessment, context=None):
+            return {"agrees": False, "verdict": "no", "confidence": 0.7}
+
+        pipeline = GRAPipeline(generate_fn=generate, review_fn=review)
+
+        result = await pipeline.evaluate("test")
+
+        assert result.resolved_by == "reviewer"
+        assert result.verdict == "no"
+        assert result.adjudication is None
 
     @pytest.mark.asyncio
     async def test_custom_keys(self):
