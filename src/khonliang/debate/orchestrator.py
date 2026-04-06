@@ -17,12 +17,10 @@ Usage:
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from khonliang.consensus.models import AgentVote, ConsensusResult
 from khonliang.gateway.messages import AgentMessage
-
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from khonliang.debate.adjudicator import BaseAdjudicator
@@ -52,7 +50,7 @@ class DebateOrchestrator:
 
     Example:
         >>> orchestrator = DebateOrchestrator(agents={"a": agent_a, "b": agent_b})
-        >>> updated_votes = await orchestrator.run_debate(votes, "review this PR")
+        >>> updated_votes, adjudicated = await orchestrator.run_debate(votes, "review this PR")
     """
 
     def __init__(
@@ -270,8 +268,6 @@ class DebateOrchestrator:
             logger.info(
                 f"Debate unresolved for '{subject[:40]}', invoking adjudicator"
             )
-            from khonliang.debate.adjudicator import AdjudicationResult
-
             adj_result = self.adjudicator.adjudicate(
                 updated_votes, subject, context
             )

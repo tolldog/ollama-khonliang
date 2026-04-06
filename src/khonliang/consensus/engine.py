@@ -7,7 +7,7 @@ A VETO from any agent blocks the decision regardless of other votes.
 
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable, Dict, List, Optional
 
 from khonliang.consensus.models import AgentVote, ConsensusResult
@@ -166,11 +166,18 @@ class ConsensusEngine:
             self.debate_threshold * 100,
         )
 
-        # Run debate to let agents reconsider
+        # Run debate to let agents reconsider.
+        # Orchestrators must return (updated_votes, adjudicated_or_None).
         orchestrator = self.debate_orchestrator
-        updated_votes = await orchestrator.run_debate(
+        updated_votes, adjudicated = await orchestrator.run_debate(
             votes, subject, context,
         )
+
+        # If the adjudicator already produced a ConsensusResult, use it directly.
+        if adjudicated is not None:
+            history = getattr(orchestrator, "_debate_history", None)
+            rounds = history[-1].get("rounds", 1) if history else 1
+            return replace(adjudicated, debate_rounds=rounds)
 
         # Recalculate consensus without debate to avoid recursion.
         # Use a local engine copy rather than mutating self to stay thread-safe.
@@ -183,12 +190,8 @@ class ConsensusEngine:
         final = local_engine.calculate_consensus(updated_votes)
 
         history = getattr(orchestrator, "_debate_history", None)
-        if history:
-            final.debate_rounds = history[-1].get("rounds", 1)
-        else:
-            final.debate_rounds = 1
-
-        return final
+        rounds = history[-1].get("rounds", 1) if history else 1
+        return replace(final, debate_rounds=rounds)
 
     def _apply_judge(
         self, result: ConsensusResult, votes: List[AgentVote]
