@@ -2,40 +2,143 @@
 Compact MCP response helpers — minimize token usage in agent-facing tools.
 
 Problem: MCP tools that return verbose markdown eat agent context windows.
-Solution: compact-by-default responses with opt-in expansion.
+Solution: three response modes with compact-by-default for agent loops.
+
+Response modes:
+    compact — key=value pairs, pipe-delimited, no prose. ~10 fields max.
+              For agent control loops where every token costs money.
+    brief   — structured one-line-per-item with small headers.
+              For monitoring and human-scannable output.
+    full    — rich detail with context. For humans.
 
 Usage:
 
-    from khonliang.mcp.compact import compact_list, truncate
+    from khonliang.mcp.compact import format_response, compact_summary
 
     @mcp.tool()
-    def my_search(query: str, limit: int = 5, detail: str = "brief") -> str:
-        results = store.search(query, limit=limit)
-        if detail == "full":
-            return full_format(results)
-        return compact_list(
-            items=results,
-            format_fn=lambda r: f"{r.id} | {r.title}",
-            header=f"{len(results)} results",
+    def my_status(detail: str = "brief") -> str:
+        return format_response(
+            compact_fn=lambda: compact_summary({
+                "agents": 6, "active": 3, "pending": 12,
+            }),
+            brief_fn=lambda: "6 agents, 3 active, 12 tasks pending",
+            full_fn=lambda: render_full_status(),
+            detail=detail,
         )
 
 Design principles:
-    1. Brief by default — IDs + titles + scores, not full content
-    2. Explicit expansion — detail="full" to get rich output
-    3. Consistent limits — small defaults (5-10), not 50-100
-    4. Structured over narrative — "id | title | score" not paragraphs
-    5. Truncation-safe — always cap per-item length
-    6. Caveman rule — every token in a response costs money. Write tool
-       outputs like a caveman: short words, no filler, no preamble,
-       no "Here are the results:", no markdown flourishes. Data only.
+    1. Compact by default for agent loops — data only, no prose
+    2. Brief for monitoring — structured, one-line-per-item
+    3. Full for humans — rich detail with context
+    4. Deterministic field order — dict insertion order preserved
+    5. Bounded field count — compact mode defaults to max 10 fields
+    6. Separator-safe — values containing | or = are escaped
+    7. Caveman rule — every token costs money. Data only.
 """
 
-from typing import Any, Callable, List
+from typing import Any, Callable, List, Optional
 
 # Default limits for MCP tools
 DEFAULT_LIST_LIMIT = 10
 DEFAULT_SEARCH_LIMIT = 5
 DEFAULT_PREVIEW_CHARS = 80
+
+# Separator characters for compact_summary
+_FIELD_SEP = "|"
+_KV_SEP = "="
+
+
+def format_response(
+    compact_fn: Optional[Callable[[], str]] = None,
+    brief_fn: Optional[Callable[[], str]] = None,
+    full_fn: Optional[Callable[[], str]] = None,
+    detail: str = "brief",
+) -> str:
+    """Switch between compact/brief/full output modes.
+
+    Args:
+        compact_fn: Returns dense key=value string for agent loops
+        brief_fn: Returns structured one-line-per-item output
+        full_fn: Returns rich detail for humans
+        detail: "compact", "brief", or "full"
+
+    Falls back gracefully: compact -> brief -> full if a mode is missing.
+    """
+    if detail == "compact":
+        if compact_fn is not None:
+            return compact_fn()
+        if brief_fn is not None:
+            return brief_fn()
+        if full_fn is not None:
+            return full_fn()
+    elif detail == "full":
+        if full_fn is not None:
+            return full_fn()
+        if brief_fn is not None:
+            return brief_fn()
+        if compact_fn is not None:
+            return compact_fn()
+    else:  # brief (default)
+        if brief_fn is not None:
+            return brief_fn()
+        if compact_fn is not None:
+            return compact_fn()
+        if full_fn is not None:
+            return full_fn()
+    return ""
+
+
+def brief_or_full(
+    brief_fn: Callable[[], str],
+    full_fn: Callable[[], str],
+    detail: str = "brief",
+) -> str:
+    """Switch between brief/full output. Backward-compatible alias.
+
+    For new code, use format_response() which also supports compact mode.
+    """
+    return format_response(brief_fn=brief_fn, full_fn=full_fn, detail=detail)
+
+
+def compact_summary(
+    data: dict,
+    sep: str = _FIELD_SEP,
+    max_fields: int = 10,
+) -> str:
+    """Format dict as dense key=value string for agent consumption.
+
+    Values containing separators are escaped. Empty/None values are skipped.
+    Field order follows dict insertion order (deterministic in Python 3.7+).
+
+    Args:
+        data: Key-value pairs to format
+        sep: Field separator (default "|")
+        max_fields: Maximum fields to include
+
+    Example:
+        >>> compact_summary({"caps": 158, "hotspots": "multi-agent:24,rl:11"})
+        'caps=158|hotspots=multi-agent:24,rl:11'
+    """
+    parts = []
+    for k, v in data.items():
+        if len(parts) >= max_fields:
+            break
+        if v is None or v == "":
+            continue
+        parts.append(
+            f"{_escape_value(str(k), sep)}{_KV_SEP}{_escape_value(str(v), sep)}"
+        )
+    return sep.join(parts)
+
+
+def _escape_value(value: str, field_sep: str = _FIELD_SEP) -> str:
+    """Escape separator characters in values.
+
+    Replaces the field separator with ¦ and = with ≈ to prevent
+    parsing ambiguity.
+    """
+    result = value.replace(field_sep, "¦")
+    return result.replace(_KV_SEP, "≈")
 
 
 def compact_list(
@@ -95,19 +198,11 @@ def truncate(text: str, max_chars: int = DEFAULT_PREVIEW_CHARS) -> str:
 
 
 def compact_kv(data: dict, max_value_len: int = 60) -> str:
-    """Format a dict as compact key=value pairs on one line."""
+    """Format a dict as compact key=value pairs on one line.
+
+    Uses comma separator. For pipe-delimited format, use compact_summary().
+    """
     parts = []
     for k, v in data.items():
         parts.append(f"{k}={truncate(str(v), max_value_len)}")
     return ", ".join(parts)
-
-
-def brief_or_full(
-    brief_fn: Callable[[], str],
-    full_fn: Callable[[], str],
-    detail: str = "brief",
-) -> str:
-    """Switch between brief/full output. Exported for downstream MCP servers."""
-    if detail == "full":
-        return full_fn()
-    return brief_fn()
