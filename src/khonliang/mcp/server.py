@@ -62,6 +62,7 @@ class KhonliangMCPServer:
     # Default guide tools — immutable class-level template.
     _default_guides: Dict[str, str] = {
         "catalog": "lists all tools, start here",
+        "coding_guide": "development workflow and API reference",
     }
 
     def add_guide(self, name: str, description: str) -> None:
@@ -349,7 +350,6 @@ class KhonliangMCPServer:
     # -- Coding guide --
 
     def _register_coding_guide_tool(self, mcp: Any) -> None:
-        self.add_guide("coding_guide", "development workflow and API reference")
         server = self
 
         @mcp.tool()
@@ -382,15 +382,14 @@ class KhonliangMCPServer:
                 "\n"
                 "Every piece of work follows this lifecycle:\n"
                 "\n"
-                "  1. Feature Request (FR) — most FRs originate from the researcher.\n"
-                "     Use fr_workflow() for the full FR discovery/claim/complete process.\n"
-                "     Claim with update_fr_status(fr_id, 'planned').\n"
+                "  1. Feature Request (FR) — start from a tracked feature request.\n"
+                "     See features/FR-###/request.md for the project's FR directory.\n"
                 "  2. Spec — write specs/MS-##/spec.md before coding.\n"
                 "     Review existing specs first. Get spec reviewed (specs/MS-##/review.md).\n"
                 "  3. Milestone — create milestones/MS-##/milestone.md.\n"
                 "     One milestone covers one or more FRs. Get reviewed.\n"
-                "  4. Branch — create worktree: ms-###/description\n"
-                "     All coding in worktrees, never on main/master.\n"
+                "  4. Branch — create an isolated branch for the milestone.\n"
+                "     All coding on branches, never on main/master.\n"
                 "  5. Code — implement with a review loop at each step.\n"
                 "     Write code, run tests, get review, iterate.\n"
                 "  6. Code review — respond to all review comments.\n"
@@ -400,12 +399,12 @@ class KhonliangMCPServer:
                 "  8. PR review — respond to all PR review feedback.\n"
                 "     Request re-review: @copilot comment after pushing fixes.\n"
                 "  9. Merge — merge to main.\n"
-                "     update_fr_status(fr_id, 'completed', notes='PR #N merged').\n"
+                "     Update FR status and any release tracking records.\n"
                 "\n"
                 "Key rules:\n"
-                "  - FRs come from the researcher — use fr_workflow() to find work.\n"
                 "  - Spec first, then milestone, then code. Don't skip steps.\n"
                 "  - Review loop at every gate — don't proceed without approval.\n"
+                "  - One milestone = one or more FRs, one branch.\n"
                 "\n"
                 "Call coding_guide(topic=...) for details on each phase."
             ),
@@ -659,9 +658,9 @@ class KhonliangMCPServer:
                 "  from khonliang.knowledge.triples import TripleStore\n"
                 "\n"
                 "  triples = TripleStore('data/knowledge.db')\n"
-                "  triples.add('TSLA', 'has_pattern', 'mean_reversion', confidence=0.9)\n"
-                "  results = triples.get(subject='TSLA', limit=10)\n"
-                "  context = triples.build_context(subjects=['TSLA'], max_triples=20)"
+                "  triples.add('transformer', 'enables', 'attention_mechanism', confidence=0.9)\n"
+                "  results = triples.get(subject='transformer', limit=10)\n"
+                "  context = triples.build_context(subjects=['transformer'], max_triples=20)"
             ),
             "consensus": (
                 "# Consensus — multi-agent voting\n"
@@ -669,10 +668,10 @@ class KhonliangMCPServer:
                 "  from khonliang.consensus import AgentTeam, ConsensusEngine\n"
                 "\n"
                 "  team = AgentTeam(agents=[\n"
-                "      {'name': 'bull', 'role': analyst_role, 'weight': 1.0},\n"
-                "      {'name': 'bear', 'role': contrarian_role, 'weight': 1.0},\n"
+                "      {'name': 'reviewer', 'role': reviewer_role, 'weight': 1.0},\n"
+                "      {'name': 'advocate', 'role': advocate_role, 'weight': 1.0},\n"
                 "  ])\n"
-                "  result = await team.evaluate('Should we buy TSLA at $250?')\n"
+                "  result = await team.evaluate('Is this document reliable?')\n"
                 "  # result.decision, result.votes, result.confidence\n"
                 "\n"
                 "## Adaptive weights\n"
@@ -681,7 +680,7 @@ class KhonliangMCPServer:
                 "\n"
                 "## Action vocabulary\n"
                 "  from khonliang.consensus import ActionVocabulary\n"
-                "  # Standardizes agent actions (BUY/SELL/HOLD) for consistent voting"
+                "  # Standardizes agent actions (APPROVE/REJECT/DEFER) for consistent voting"
             ),
             "mcp": (
                 "# Extending KhonliangMCPServer\n"
