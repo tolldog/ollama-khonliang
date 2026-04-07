@@ -397,9 +397,9 @@ class KhonliangMCPServer:
             )
             items = []
 
-        for name, tool in items:
-            from khonliang.mcp.compact import truncate
+        from khonliang.mcp.compact import truncate
 
+        for name, tool in items:
             doc = ""
             if hasattr(tool, "description"):
                 doc = tool.description or ""
