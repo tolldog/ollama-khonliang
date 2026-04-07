@@ -98,6 +98,9 @@ The library is layered:
 
 ## MCP Tool Response Convention
 
+> **Local models are cheap. External context is expensive.**
+> Every token sent to an external coding agent must earn its place. If a local model can compress, score, filter, or structure data before it reaches the MCP boundary, it should.
+
 All MCP tool responses must be token-efficient. External agents (Claude, Codex, etc.) pay per token — verbose output wastes their context window and money.
 
 **Rules:**
@@ -106,9 +109,11 @@ All MCP tool responses must be token-efficient. External agents (Claude, Codex, 
 - Data only: `id | title | score` not paragraphs
 - Default to brief. Agent asks for `detail="full"` when needed
 - Use `khonliang.mcp.compact` helpers for consistent formatting
+- Use `ContextBudget` + `fit_to_budget()` to declare and enforce output ceilings
+- Use compressed artifact types (`CompactConcept`, `CompactFR`, `CompactSynthesis`) for structured outputs
 - Every word must earn its place — if removing it doesn't lose information, remove it
 
-See `src/khonliang/mcp/compact.py` for helpers and design principles.
+See `src/khonliang/mcp/compact.py` for formatting helpers, `src/khonliang/mcp/budget.py` for budget framework, and `docs/context-compression.md` for the full guide.
 
 ## Project Origin
 
