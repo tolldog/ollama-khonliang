@@ -5,6 +5,7 @@ Async Ollama client with typed errors, per-model timeouts, retry, and streaming.
 import asyncio
 import json
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
@@ -40,7 +41,11 @@ DEFAULT_MODEL_TIMEOUTS: Dict[str, int] = {
 
 @dataclass
 class GenerationResult:
-    """Result from an LLM generation call, including token metrics."""
+    """Result from an LLM generation call, including token metrics.
+
+    When self-distillation is used (n_samples > 1), the distillation
+    fields are populated with selection metadata.
+    """
 
     text: str
     model: str
@@ -48,11 +53,21 @@ class GenerationResult:
     eval_count: int = 0
     total_duration_ns: int = 0
     eval_duration_ns: int = 0
+    # Self-distillation metadata (populated when n_samples > 1)
+    candidates_generated: int = 1
+    selected_index: int = 0
+    total_prompt_tokens: int = 0
+    total_eval_tokens: int = 0
 
     @property
     def duration_s(self) -> float:
         """Total generation duration in seconds."""
         return self.total_duration_ns / 1e9 if self.total_duration_ns else 0.0
+
+    @property
+    def distilled(self) -> bool:
+        """True if this result was produced via self-distillation."""
+        return self.candidates_generated > 1
 
 
 class OllamaClient:
@@ -116,6 +131,7 @@ class OllamaClient:
         model: Optional[str] = None,
         extra_options: Optional[Dict[str, Any]] = None,
         keep_alive: Optional[str] = None,
+        n_samples: int = 1,
     ) -> str:
         """Generate text from a prompt. Returns the response string.
 
@@ -128,6 +144,9 @@ class OllamaClient:
             extra_options: Additional Ollama options merged into the request.
             keep_alive: Override keep_alive duration (e.g. "5m", "0", "-1").
                 Falls back to default_keep_alive if not set.
+            n_samples: Number of candidates to generate. When > 1, uses
+                self-distillation: generates N samples in parallel, then
+                asks the model to select the best one.
         """
         result = await self.generate_with_metrics(
             prompt=prompt,
@@ -137,6 +156,7 @@ class OllamaClient:
             model=model,
             extra_options=extra_options,
             keep_alive=keep_alive,
+            n_samples=n_samples,
         )
         return result.text
 
@@ -149,6 +169,7 @@ class OllamaClient:
         model: Optional[str] = None,
         extra_options: Optional[Dict[str, Any]] = None,
         keep_alive: Optional[str] = None,
+        n_samples: int = 1,
     ) -> GenerationResult:
         """Generate text and return a GenerationResult with token metrics.
 
@@ -161,7 +182,26 @@ class OllamaClient:
             extra_options: Additional Ollama options merged into the request.
             keep_alive: Override keep_alive duration (e.g. "5m", "0", "-1").
                 Falls back to default_keep_alive if not set.
+            n_samples: Number of candidates to generate. When > 1, uses
+                self-distillation: generates N samples in parallel with
+                slightly elevated temperature, then asks the model to
+                select the best one.
         """
+        if n_samples < 1:
+            raise ValueError(f"n_samples must be >= 1, got {n_samples}")
+
+        if n_samples > 1:
+            return await self._distill(
+                prompt=prompt,
+                system=system,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                model=model,
+                extra_options=extra_options,
+                keep_alive=keep_alive,
+                n_samples=n_samples,
+            )
+
         model_name = model or self.model
         model_timeout = self._get_timeout(model_name)
 
@@ -199,6 +239,124 @@ class OllamaClient:
                     await asyncio.sleep(backoff)
 
         raise last_error  # type: ignore[misc]
+
+    # Default selector prompt for self-distillation
+    _SELECTOR_PROMPT = (
+        "Given these {n} candidate responses to the same prompt, select the "
+        "one that is most accurate, complete, and well-structured. Return "
+        "ONLY the number (1-{n}) of the best response, nothing else.\n\n"
+        "{candidates}"
+    )
+
+    async def _distill(
+        self,
+        prompt: str,
+        system: Optional[str],
+        temperature: float,
+        max_tokens: int,
+        model: Optional[str],
+        extra_options: Optional[Dict[str, Any]],
+        keep_alive: Optional[str],
+        n_samples: int,
+    ) -> GenerationResult:
+        """Self-distillation: sample N responses in parallel, select the best.
+
+        Runs n_samples generate calls concurrently with slightly elevated
+        temperature for diversity, then asks the model to pick the best one.
+        """
+        # Elevate temperature slightly for diversity across samples
+        sample_temp = min(1.0, temperature + 0.15)
+
+        # Generate N candidates in parallel
+        tasks = [
+            self.generate_with_metrics(
+                prompt=prompt,
+                system=system,
+                temperature=sample_temp,
+                max_tokens=max_tokens,
+                model=model,
+                extra_options=extra_options,
+                keep_alive=keep_alive,
+                n_samples=1,  # Prevent recursion
+            )
+            for _ in range(n_samples)
+        ]
+        candidates = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Filter out failures
+        valid: List[GenerationResult] = [
+            c for c in candidates if isinstance(c, GenerationResult)
+        ]
+        if not valid:
+            # All failed — re-raise the first exception
+            for c in candidates:
+                if isinstance(c, Exception):
+                    raise c
+            raise RuntimeError("All distillation candidates failed")
+
+        if len(valid) == 1:
+            # Only one survived — return it directly with metrics populated
+            result = valid[0]
+            result.candidates_generated = n_samples
+            result.selected_index = 0
+            result.total_prompt_tokens = result.prompt_eval_count
+            result.total_eval_tokens = result.eval_count
+            return result
+
+        # Build selection prompt
+        candidate_text = "\n\n".join(
+            f"--- Response {i + 1} ---\n{c.text}" for i, c in enumerate(valid)
+        )
+        selector_prompt = self._SELECTOR_PROMPT.format(
+            n=len(valid), candidates=candidate_text
+        )
+
+        # Ask the model to pick the best
+        selection = await self.generate_with_metrics(
+            prompt=selector_prompt,
+            system="You are a quality judge. Pick the best response number.",
+            temperature=0.1,  # Low temp for deterministic selection
+            max_tokens=10,
+            model=model,
+            extra_options=extra_options,
+            keep_alive=keep_alive,
+            n_samples=1,
+        )
+
+        # Parse selected index
+        match = re.search(r"\d+", selection.text)
+        selected_idx = 0  # Default to first
+        if match:
+            parsed = int(match.group()) - 1  # Convert 1-based to 0-based
+            if 0 <= parsed < len(valid):
+                selected_idx = parsed
+
+        # Build result from selected candidate + aggregate metrics
+        chosen = valid[selected_idx]
+        total_prompt = sum(c.prompt_eval_count for c in valid) + selection.prompt_eval_count
+        total_eval = sum(c.eval_count for c in valid) + selection.eval_count
+        total_duration = sum(c.total_duration_ns for c in valid) + selection.total_duration_ns
+
+        logger.info(
+            f"Self-distillation: {len(valid)}/{n_samples} candidates, "
+            f"selected #{selected_idx + 1}, "
+            f"total tokens: {total_prompt + total_eval}"
+        )
+
+        total_eval_duration = sum(c.eval_duration_ns for c in valid) + selection.eval_duration_ns
+
+        return GenerationResult(
+            text=chosen.text,
+            model=chosen.model,
+            prompt_eval_count=chosen.prompt_eval_count,
+            eval_count=chosen.eval_count,
+            total_duration_ns=total_duration,
+            eval_duration_ns=total_eval_duration,
+            candidates_generated=n_samples,
+            selected_index=selected_idx,
+            total_prompt_tokens=total_prompt,
+            total_eval_tokens=total_eval,
+        )
 
     async def _do_generate(
         self, payload: Dict[str, Any], model_name: str, timeout: int
