@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ollama-khonliang"
-version = "0.6.1"
+version = "0.6.2"
 description = "A llama rancher — multi-agent LLM orchestration framework for Ollama"
 readme = "README.md"
 license = { text = "MIT" }

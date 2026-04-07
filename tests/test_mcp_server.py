@@ -106,9 +106,9 @@ class TestGuideRegistration:
         assert "my_guide" in text
 
     @pytest.mark.asyncio
-    async def test_coding_guide_responses_topic(self, server_no_components):
+    async def test_response_modes_tool(self, server_no_components):
         app = server_no_components.create_app()
-        result = await app.call_tool("coding_guide", {"topic": "responses"})
+        result = await app.call_tool("response_modes", {})
         text = result[0].text if hasattr(result[0], "text") else str(result[0])
         assert "compact" in text
         assert "brief" in text
@@ -140,7 +140,7 @@ class TestToolRegistration:
         app = server_no_components.create_app()
         tools = await app.list_tools()
         tool_names = {t.name for t in tools}
-        assert tool_names == {"catalog", "coding_guide"}
+        assert tool_names == {"catalog", "coding_guide", "response_modes"}
 
     @pytest.mark.asyncio
     async def test_catalog_lists_registered_tools(self, server_with_blackboard):
