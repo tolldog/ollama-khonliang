@@ -5,6 +5,7 @@ Async Ollama client with typed errors, per-model timeouts, retry, and streaming.
 import asyncio
 import json
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
@@ -186,6 +187,8 @@ class OllamaClient:
                 slightly elevated temperature, then asks the model to
                 select the best one.
         """
+        if n_samples < 1:
+            raise ValueError(f"n_samples must be >= 1, got {n_samples}")
         if n_samples > 1:
             return await self._distill(
                 prompt=prompt,
@@ -317,8 +320,6 @@ class OllamaClient:
         )
 
         # Parse selected index
-        import re
-
         match = re.search(r"\d+", selection.text)
         selected_idx = 0  # Default to first
         if match:

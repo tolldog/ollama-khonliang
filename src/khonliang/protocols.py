@@ -34,6 +34,7 @@ class LLMClient(Protocol):
         model: Optional[str] = None,
         extra_options: Optional[Dict[str, Any]] = None,
         keep_alive: Optional[str] = None,
+        n_samples: int = 1,
     ) -> str: ...
 
     async def generate_with_metrics(
@@ -45,6 +46,7 @@ class LLMClient(Protocol):
         model: Optional[str] = None,
         extra_options: Optional[Dict[str, Any]] = None,
         keep_alive: Optional[str] = None,
+        n_samples: int = 1,
     ) -> GenerationResult: ...
 
     async def stream_generate(

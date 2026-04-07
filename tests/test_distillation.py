@@ -68,6 +68,20 @@ class TestDistill:
         assert result.distilled is False
 
     @pytest.mark.asyncio
+    async def test_n_samples_zero_raises(self):
+        """n_samples=0 should raise ValueError."""
+        client = OllamaClient(model="test")
+        with pytest.raises(ValueError, match="n_samples must be >= 1"):
+            await client.generate_with_metrics("test prompt", n_samples=0)
+
+    @pytest.mark.asyncio
+    async def test_n_samples_negative_raises(self):
+        """Negative n_samples should raise ValueError."""
+        client = OllamaClient(model="test")
+        with pytest.raises(ValueError, match="n_samples must be >= 1"):
+            await client.generate_with_metrics("test prompt", n_samples=-1)
+
+
     async def test_distill_selects_best(self):
         """Distillation should run N samples and a selection call."""
         client = OllamaClient(model="test")
