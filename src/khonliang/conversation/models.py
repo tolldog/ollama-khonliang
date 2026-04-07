@@ -2,7 +2,7 @@
 Data models for multi-agent conversations.
 
 Domain-agnostic: supports any multi-agent discussion scenario
-(trading analysis, code review, research debate, collaborative planning).
+(brainstorming, code review, research debate, collaborative planning).
 """
 
 from dataclasses import dataclass, field

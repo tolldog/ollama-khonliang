@@ -290,9 +290,9 @@ class TestConsensus:
     @pytest.mark.asyncio
     async def test_action_consensus_terminates(self):
         agents = [
-            ActionAgent("a", "BUY"),
-            ActionAgent("b", "BUY"),
-            ActionAgent("c", "BUY"),
+            ActionAgent("a", "APPROVE"),
+            ActionAgent("b", "APPROVE"),
+            ActionAgent("c", "APPROVE"),
         ]
         config = ConversationConfig(
             turn_policy=TurnPolicy.ALL_THEN_ORGANIZE,
@@ -300,7 +300,7 @@ class TestConsensus:
             terminate_on_consensus=True,
         )
         manager = ConversationManager(agents, config)
-        result = await manager.run("TSLA")
+        result = await manager.run("evaluate proposal")
 
         assert result.terminated_by == "consensus"
         assert result.rounds == 1
@@ -322,8 +322,8 @@ class TestConsensus:
     @pytest.mark.asyncio
     async def test_no_consensus_runs_all_rounds(self):
         agents = [
-            ActionAgent("a", "BUY"),
-            ActionAgent("b", "SELL"),
+            ActionAgent("a", "APPROVE"),
+            ActionAgent("b", "REJECT"),
         ]
         config = ConversationConfig(
             turn_policy=TurnPolicy.ALL_THEN_ORGANIZE,
@@ -331,7 +331,7 @@ class TestConsensus:
             terminate_on_consensus=True,
         )
         manager = ConversationManager(agents, config)
-        result = await manager.run("TSLA")
+        result = await manager.run("evaluate proposal")
 
         assert result.terminated_by == "max_rounds"
         assert result.rounds == 2

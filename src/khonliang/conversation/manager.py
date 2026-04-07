@@ -11,7 +11,7 @@ of all contributions for structured follow-up.
 
 Usage:
     manager = ConversationManager(agents, config)
-    result = await manager.run("Should we buy TSLA?")
+    result = await manager.run("How should we prioritize the next sprint?")
 """
 
 import asyncio
@@ -89,19 +89,21 @@ class ConversationManager:
         ALL_THEN_ORGANIZE: Round 1 is parallel (unbiased input from all agents
                            without seeing each other's responses). Subsequent
                            rounds are sequential with full history visibility.
-        DIRECTED:          Current speaker nominates the next via reply_to metadata.
-        MODERATOR:         A designated agent picks who speaks next.
-        ANY:               All agents are asked; first responder wins the turn.
+        DIRECTED:          Current speaker nominates the next via ``next_speaker``
+                           key in their response metadata.
+        MODERATOR:         A designated moderator agent speaks first each round
+                           to set direction, then other agents respond sequentially.
+        ANY:               All agents are asked; first valid responder wins the turn.
 
     Example:
         manager = ConversationManager(
-            agents=[analyst, researcher, critic],
+            agents=[agent_a, agent_b, agent_c],
             config=ConversationConfig(
                 turn_policy=TurnPolicy.ALL_THEN_ORGANIZE,
                 max_rounds=3,
             ),
         )
-        result = await manager.run("Evaluate TSLA for swing trade entry")
+        result = await manager.run("How should we approach this problem?")
     """
 
     def __init__(
@@ -116,10 +118,21 @@ class ConversationManager:
             config: Conversation configuration
             summarizer: Optional async fn(history) -> summary string,
                         called after conversation ends
+
+        Raises:
+            ValueError: If agent_id values are not unique
         """
         self.agents = agents
         self.config = config or ConversationConfig()
         self.summarizer = summarizer
+
+        # Validate unique agent IDs
+        seen: set[str] = set()
+        for a in agents:
+            if a.agent_id in seen:
+                raise ValueError(f"Duplicate agent_id: '{a.agent_id}'")
+            seen.add(a.agent_id)
+
         self._agent_map = {a.agent_id: a for a in agents}
 
     async def run(
@@ -185,12 +198,10 @@ class ConversationManager:
 
         if policy == TurnPolicy.ALL_THEN_ORGANIZE:
             if round_num == 1:
-                # Parallel fan-out — unbiased input, no one sees others
                 return await self._round_parallel(
                     round_num, topic, history, context
                 )
             else:
-                # Sequential with full history visibility
                 return await self._round_sequential(
                     round_num, topic, history, context, self.agents
                 )
@@ -252,22 +263,24 @@ class ConversationManager:
         context: Optional[Dict[str, Any]],
         agent_order: List[Any],
     ) -> List[ConversationMessage]:
-        """Agents respond one at a time, each seeing prior messages in this round."""
-        messages = []
-        # Build a working history that includes this round's messages as they arrive
+        """Agents respond one at a time, each seeing prior messages in this round.
+
+        Uses a working copy of history so the caller's history is not mutated.
+        """
+        messages: List[ConversationMessage] = []
+        # Working copy: agents see base history + this round's messages so far
+        working = ConversationHistory(
+            topic=history.topic,
+            messages=list(history.messages),
+        )
+
         for agent in agent_order:
             msg = await self._get_response(
-                agent, round_num, topic, history, context
+                agent, round_num, topic, working, context
             )
             if msg is not None:
                 messages.append(msg)
-                # Add to history so next agent can see it
-                history.add(msg)
-
-        # Remove from history — caller will re-add all at once
-        for msg in messages:
-            if msg in history.messages:
-                history.messages.remove(msg)
+                working.add(msg)
 
         return messages
 
@@ -278,33 +291,40 @@ class ConversationManager:
         history: ConversationHistory,
         context: Optional[Dict[str, Any]],
     ) -> List[ConversationMessage]:
-        """All agents race — first valid response wins."""
-        tasks = {
-            agent.agent_id: asyncio.create_task(
+        """All agents race — first valid (non-None) response wins."""
+        tasks = [
+            asyncio.create_task(
                 self._get_response(agent, round_num, topic, history, context)
             )
             for agent in self.agents
-        }
+        ]
 
-        done, pending = await asyncio.wait(
-            tasks.values(),
-            timeout=self.config.agent_timeout,
-            return_when=asyncio.FIRST_COMPLETED,
-        )
+        remaining = set(tasks)
+        result_msg: Optional[ConversationMessage] = None
 
-        # Cancel losers
-        for task in pending:
+        while remaining and result_msg is None:
+            done, remaining = await asyncio.wait(
+                remaining,
+                timeout=self.config.agent_timeout,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if not done:
+                break
+
+            for task in done:
+                try:
+                    result = task.result()
+                    if isinstance(result, ConversationMessage):
+                        result_msg = result
+                        break
+                except Exception:
+                    continue
+
+        # Cancel remaining tasks
+        for task in remaining:
             task.cancel()
 
-        for task in done:
-            try:
-                result = task.result()
-                if isinstance(result, ConversationMessage):
-                    return [result]
-            except Exception:
-                continue
-
-        return []
+        return [result_msg] if result_msg else []
 
     async def _round_moderated(
         self,
@@ -313,7 +333,10 @@ class ConversationManager:
         history: ConversationHistory,
         context: Optional[Dict[str, Any]],
     ) -> List[ConversationMessage]:
-        """Moderator picks who speaks, one at a time."""
+        """Moderator speaks first to set direction, then others respond sequentially.
+
+        The moderator's message is visible to all subsequent speakers in the round.
+        """
         moderator_id = self.config.moderator_id
         if not moderator_id or moderator_id not in self._agent_map:
             logger.warning("No moderator configured, falling back to round_robin")
@@ -324,23 +347,30 @@ class ConversationManager:
         moderator = self._agent_map[moderator_id]
         non_moderators = [a for a in self.agents if a.agent_id != moderator_id]
 
-        # Ask moderator who should speak
-        pick_history = ConversationHistory(topic=topic, messages=list(history.messages))
-        moderator_msg = await self._get_response(
-            moderator, round_num, topic, pick_history, context
+        # Working copy for this round
+        working = ConversationHistory(
+            topic=history.topic,
+            messages=list(history.messages),
         )
 
-        messages = []
-        if moderator_msg:
-            messages.append(moderator_msg)
+        messages: List[ConversationMessage] = []
 
-        # Let each non-moderator respond sequentially
+        # Moderator speaks first
+        mod_msg = await self._get_response(
+            moderator, round_num, topic, working, context
+        )
+        if mod_msg:
+            messages.append(mod_msg)
+            working.add(mod_msg)
+
+        # Others respond sequentially, seeing moderator's message
         for agent in non_moderators:
             msg = await self._get_response(
-                agent, round_num, topic, history, context
+                agent, round_num, topic, working, context
             )
             if msg:
                 messages.append(msg)
+                working.add(msg)
 
         return messages
 
@@ -351,12 +381,22 @@ class ConversationManager:
         history: ConversationHistory,
         context: Optional[Dict[str, Any]],
     ) -> List[ConversationMessage]:
-        """Previous speaker nominates the next via reply_to metadata."""
-        # Start with first agent, then follow reply_to chain
+        """Current speaker nominates the next via ``next_speaker`` metadata key.
+
+        Each speaker sets metadata["next_speaker"] to an agent_id to pass
+        the conversation to that agent. The chain stops when no valid
+        next_speaker is nominated or all agents have spoken.
+        """
         if not self.agents:
             return []
 
-        # Determine starting agent
+        # Working copy for this round
+        working = ConversationHistory(
+            topic=history.topic,
+            messages=list(history.messages),
+        )
+
+        # Determine starting agent from last message's next_speaker
         if history.messages:
             last = history.messages[-1]
             next_id = last.metadata.get("next_speaker")
@@ -364,8 +404,8 @@ class ConversationManager:
         else:
             current = self.agents[0]
 
-        messages = []
-        visited = set()
+        messages: List[ConversationMessage] = []
+        visited: set[str] = set()
 
         for _ in range(len(self.agents)):
             if current.agent_id in visited:
@@ -373,25 +413,20 @@ class ConversationManager:
             visited.add(current.agent_id)
 
             msg = await self._get_response(
-                current, round_num, topic, history, context
+                current, round_num, topic, working, context
             )
             if msg is None:
                 break
 
             messages.append(msg)
-            history.add(msg)
+            working.add(msg)
 
-            # Check for next_speaker nomination
+            # Follow next_speaker nomination
             next_id = msg.metadata.get("next_speaker")
             if next_id and next_id in self._agent_map:
                 current = self._agent_map[next_id]
             else:
                 break
-
-        # Remove from history — caller re-adds
-        for msg in messages:
-            if msg in history.messages:
-                history.messages.remove(msg)
 
         return messages
 
@@ -403,13 +438,17 @@ class ConversationManager:
         history: ConversationHistory,
         context: Optional[Dict[str, Any]],
     ) -> Optional[ConversationMessage]:
-        """Get a single response from an agent with timeout."""
+        """Get a single response from an agent with timeout.
+
+        Copies agent metadata to avoid mutating agent state.
+        """
         try:
             content = await asyncio.wait_for(
                 agent.respond(topic, history, context),
                 timeout=self.config.agent_timeout,
             )
-            meta = getattr(agent, "_last_metadata", {})
+            # Copy metadata to avoid mutating agent state
+            meta = dict(getattr(agent, "_last_metadata", {}))
             stance = meta.pop("stance", Stance.NEUTRAL)
             conviction = meta.pop("conviction", 0.5)
             return ConversationMessage(
@@ -435,10 +474,9 @@ class ConversationManager:
         """Check if agents have converged in this round.
 
         Considers:
-        - Explicit action agreement (metadata "action" field)
         - All agents conceding (stance = conceding)
-        - High average conviction with same action
-        - Identical responses
+        - All agents agree on explicit action + high average conviction
+        - Identical text responses
         """
         if len(messages) < 2:
             return False
@@ -448,13 +486,10 @@ class ConversationManager:
         if all(s == Stance.CONCEDING for s in stances):
             return True
 
-        # Check metadata "action" field if present
-        actions = [m.metadata.get("action") for m in messages if m.metadata.get("action")]
-        if actions and len(actions) == len(messages) and len(set(actions)) == 1:
-            return True
-
-        # High conviction + same action = strong consensus
-        if actions and len(set(actions)) == 1:
+        # Check metadata "action" field — require all agents to have one
+        actions = [m.metadata.get("action") for m in messages]
+        if all(a is not None for a in actions) and len(set(actions)) == 1:
+            # Same action from everyone — check conviction threshold
             avg_conviction = sum(m.conviction for m in messages) / len(messages)
             if avg_conviction >= 0.7:
                 return True
