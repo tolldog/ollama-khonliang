@@ -85,10 +85,11 @@ class TestBlackboardTools:
 
 class TestToolRegistration:
     @pytest.mark.asyncio
-    async def test_no_tools_when_no_components(self, server_no_components):
+    async def test_only_catalog_when_no_components(self, server_no_components):
         app = server_no_components.create_app()
         tools = await app.list_tools()
-        assert len(tools) == 0
+        assert len(tools) == 1
+        assert tools[0].name == "catalog"
 
     @pytest.mark.asyncio
     async def test_blackboard_tools_registered(self, server_with_blackboard):
