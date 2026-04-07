@@ -50,6 +50,13 @@ class KhonliangMCPServer:
         self.session = session
         self.roles = roles or {}
         self.router = router
+        # Copy default guides so subclasses can extend without mutating base
+        self.guide_tools: Dict[str, str] = dict(self._default_guides)
+
+    # Default guide tools — immutable class-level template.
+    _default_guides: Dict[str, str] = {
+        "catalog": "lists all tools, start here",
+    }
 
     def create_app(self):
         """Create a FastMCP app with tools and resources registered."""
@@ -63,6 +70,7 @@ class KhonliangMCPServer:
         self._register_blackboard_tools(mcp)
         self._register_role_tools(mcp)
         self._register_session_tools(mcp)
+        self._register_catalog_tool(mcp)
         self._register_resources(mcp)
 
         return mcp
@@ -322,6 +330,180 @@ class KhonliangMCPServer:
         def get_session_context(max_turns: int = 5) -> str:
             """Get the current session context (recent exchanges, entities, topic)."""
             return session.build_context(max_turns=max_turns)
+
+    # -- Catalog --
+
+    def _register_catalog_tool(self, mcp: Any) -> None:
+        server = self
+
+        @mcp.tool()
+        def catalog(detail: str = "brief") -> str:
+            """List all available tools. Start here.
+
+            Guide tools (marked with *) explain how to use subsystems —
+            call them before diving into data tools.
+
+            detail="compact": tools|guides|categories counts
+            detail="brief": grouped by category with guides highlighted
+            detail="full": includes parameters per tool
+            """
+            from khonliang.mcp.compact import compact_summary, format_response
+
+            # Discover registered tools and read guides at call time
+            tool_map = server._discover_tools(mcp)
+            guides = server.guide_tools
+
+            return format_response(
+                compact_fn=lambda: compact_summary({
+                    "tools": len(tool_map),
+                    "guides": ",".join(sorted(guides.keys())),
+                    "categories": ",".join(sorted(
+                        {cat for cat, _, _ in tool_map.values()}
+                    )),
+                }),
+                brief_fn=lambda: server._format_catalog_brief(tool_map, guides),
+                full_fn=lambda: server._format_catalog_full(tool_map, guides),
+                detail=detail,
+            )
+
+    def _discover_tools(self, mcp: Any) -> Dict[str, tuple]:
+        """Introspect registered MCP tools.
+
+        Returns {name: (category, description, params_str)}.
+        """
+        tools: Dict[str, tuple] = {}
+
+        # FastMCP stores tools in _tool_manager._tools or _tools depending on version
+        tool_list = None
+        if hasattr(mcp, "_tool_manager") and hasattr(mcp._tool_manager, "_tools"):
+            tool_list = mcp._tool_manager._tools
+        elif hasattr(mcp, "_tools"):
+            tool_list = mcp._tools
+        elif hasattr(mcp, "tools"):
+            tool_list = mcp.tools
+
+        if tool_list is None:
+            return tools
+
+        # Handle both dict ({name: tool}) and list ([tool]) storage
+        if isinstance(tool_list, dict):
+            items = tool_list.items()
+        elif isinstance(tool_list, (list, tuple)):
+            items = [(getattr(t, "name", str(i)), t) for i, t in enumerate(tool_list)]
+        else:
+            logger.warning(
+                f"Unknown tool storage type: {type(tool_list).__name__}. "
+                f"Catalog may be incomplete."
+            )
+            items = []
+
+        from khonliang.mcp.compact import truncate
+
+        for name, tool in items:
+            doc = ""
+            if hasattr(tool, "description"):
+                doc = tool.description or ""
+            elif hasattr(tool, "fn") and tool.fn.__doc__:
+                doc = tool.fn.__doc__.strip().split("\n")[0]
+
+            # Infer category from tool name prefix
+            category = self._infer_category(name)
+
+            # Extract parameter info
+            params = ""
+            if hasattr(tool, "parameters"):
+                param_names = list(tool.parameters.get("properties", {}).keys())
+                params = ", ".join(param_names)
+
+            tools[name] = (category, truncate(doc, 100), params)
+
+        return tools
+
+    @staticmethod
+    def _infer_category(tool_name: str) -> str:
+        """Infer category from tool name prefix."""
+        prefixes = {
+            "knowledge": "knowledge",
+            "triple": "triples",
+            "blackboard": "blackboard",
+            "invoke_role": "roles",
+            "get_session": "session",
+            "catalog": "meta",
+        }
+        for prefix, category in prefixes.items():
+            if tool_name.startswith(prefix):
+                return category
+        return "other"
+
+    def _format_catalog_brief(
+        self, tool_map: Dict[str, tuple], guide_tools: Dict[str, str]
+    ) -> str:
+        """Format catalog as grouped list with guides highlighted."""
+        # Group by category
+        categories: Dict[str, list] = {}
+        for name, (cat, desc, _) in tool_map.items():
+            categories.setdefault(cat, []).append((name, desc))
+
+        lines = []
+
+        # Guides section first
+        guide_names = set(guide_tools.keys())
+        if guide_names:
+            lines.append("=== GUIDES (start here) ===")
+            for name in sorted(guide_names):
+                desc = guide_tools.get(name, "")
+                if name in tool_map:
+                    desc = desc or tool_map[name][1]
+                lines.append(f"  * {name}: {desc}")
+            lines.append("")
+
+        # Other categories
+        for cat in sorted(categories.keys()):
+            if cat == "meta":
+                continue  # already shown in guides
+            tools = categories[cat]
+            lines.append(f"=== {cat.upper()} ===")
+            for name, desc in sorted(tools):
+                marker = " *" if name in guide_names else ""
+                lines.append(f"  {name}{marker}: {desc}")
+            lines.append("")
+
+        return "\n".join(lines).strip()
+
+    def _format_catalog_full(
+        self, tool_map: Dict[str, tuple], guide_tools: Dict[str, str]
+    ) -> str:
+        """Format catalog with parameter details."""
+        categories: Dict[str, list] = {}
+        for name, (cat, desc, params) in tool_map.items():
+            categories.setdefault(cat, []).append((name, desc, params))
+
+        lines = []
+        guide_names = set(guide_tools.keys())
+
+        if guide_names:
+            lines.append("=== GUIDES (start here) ===")
+            for name in sorted(guide_names):
+                desc = guide_tools.get(name, "")
+                if name in tool_map:
+                    _, tool_desc, params = tool_map[name]
+                    desc = desc or tool_desc
+                    lines.append(f"  * {name}({params}): {desc}")
+                else:
+                    lines.append(f"  * {name}: {desc}")
+            lines.append("")
+
+        for cat in sorted(categories.keys()):
+            if cat == "meta":
+                continue
+            tools = categories[cat]
+            lines.append(f"=== {cat.upper()} ===")
+            for name, desc, params in sorted(tools):
+                marker = " *" if name in guide_names else ""
+                lines.append(f"  {name}({params}){marker}: {desc}")
+            lines.append("")
+
+        return "\n".join(lines).strip()
 
     # -- Resources --
 
