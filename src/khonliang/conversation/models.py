@@ -28,12 +28,14 @@ class TurnPolicy(str, Enum):
     """Determines how agents take turns in a conversation.
 
     ROUND_ROBIN:       Each agent speaks in order, cycling through the list.
-    DIRECTED:          The current speaker nominates the next speaker.
-    MODERATOR:         A designated moderator agent picks who speaks next.
+    DIRECTED:          The current speaker nominates the next speaker via
+                       ``next_speaker`` key in their response metadata.
+    MODERATOR:         A designated moderator agent speaks first each round
+                       to set direction, then other agents respond sequentially.
     ALL_THEN_ORGANIZE: Round 1 is parallel fan-out (all agents respond
                        simultaneously), subsequent rounds are sequential
                        with full visibility of prior contributions.
-    ANY:               Any agent can respond; first responder wins the turn.
+    ANY:               Any agent can respond; first valid responder wins the turn.
     """
 
     ROUND_ROBIN = "round_robin"

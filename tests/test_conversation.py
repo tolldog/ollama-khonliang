@@ -423,3 +423,183 @@ class TestConversationResult:
         assert d["terminated_by"] == "max_rounds"
         assert d["message_count"] == 1
         assert d["participants"] == ["a"]
+
+
+# ---------------------------------------------------------------------------
+# ConversationManager — DIRECTED
+# ---------------------------------------------------------------------------
+
+
+class TestDirectedPolicy:
+    @pytest.mark.asyncio
+    async def test_directed_chain(self):
+        """Each speaker nominates the next via next_speaker metadata."""
+
+        class DirectingAgent:
+            def __init__(self, aid: str, next_id: str | None = None):
+                self.agent_id = aid
+                self._next_id = next_id
+                self._last_metadata: dict = {}
+
+            async def respond(self, topic, history, context=None):
+                if self._next_id:
+                    self._last_metadata = {"next_speaker": self._next_id}
+                else:
+                    self._last_metadata = {}
+                return f"{self.agent_id} speaks"
+
+        agent_a = DirectingAgent("a", next_id="b")
+        agent_b = DirectingAgent("b", next_id="c")
+        agent_c = DirectingAgent("c")  # chain ends here
+
+        agents = [agent_a, agent_b, agent_c]
+        config = ConversationConfig(turn_policy=TurnPolicy.DIRECTED, max_rounds=1)
+        manager = ConversationManager(agents, config)
+        result = await manager.run("test topic")
+
+        speaker_ids = [m.agent_id for m in result.history.messages]
+        assert speaker_ids == ["a", "b", "c"]
+
+    @pytest.mark.asyncio
+    async def test_directed_stops_without_nomination(self):
+        """Chain stops when the current speaker does not nominate a next speaker."""
+
+        class NonDirectingAgent:
+            def __init__(self, aid):
+                self.agent_id = aid
+                self._last_metadata: dict = {}
+
+            async def respond(self, topic, history, context=None):
+                return f"{self.agent_id} speaks"
+
+        agents = [NonDirectingAgent("a"), NonDirectingAgent("b")]
+        config = ConversationConfig(turn_policy=TurnPolicy.DIRECTED, max_rounds=1)
+        manager = ConversationManager(agents, config)
+        result = await manager.run("test topic")
+
+        # Only the first agent speaks — no nomination to continue
+        assert len(result.history.messages) == 1
+        assert result.history.messages[0].agent_id == "a"
+
+
+# ---------------------------------------------------------------------------
+# ConversationManager — MODERATOR fallback
+# ---------------------------------------------------------------------------
+
+
+class TestModeratorPolicy:
+    @pytest.mark.asyncio
+    async def test_moderator_speaks_first(self):
+        """Moderator's message appears before other agents' messages."""
+        order: list[str] = []
+
+        class OrderAgent:
+            def __init__(self, aid):
+                self.agent_id = aid
+                self._last_metadata: dict = {}
+
+            async def respond(self, topic, history, context=None):
+                order.append(self.agent_id)
+                return f"{self.agent_id} speaks"
+
+        agents = [OrderAgent("a"), OrderAgent("mod"), OrderAgent("b")]
+        config = ConversationConfig(
+            turn_policy=TurnPolicy.MODERATOR,
+            max_rounds=1,
+            moderator_id="mod",
+        )
+        manager = ConversationManager(agents, config)
+        await manager.run("test topic")
+
+        assert order[0] == "mod"
+
+    @pytest.mark.asyncio
+    async def test_moderator_fallback_when_not_configured(self):
+        """Falls back to round_robin when no moderator is configured."""
+        agents = [StubAgent("a"), StubAgent("b")]
+        config = ConversationConfig(
+            turn_policy=TurnPolicy.MODERATOR,
+            max_rounds=1,
+            moderator_id=None,
+        )
+        manager = ConversationManager(agents, config)
+        result = await manager.run("test topic")
+
+        # Fallback to round_robin means both agents speak
+        assert len(result.history.messages) == 2
+
+    @pytest.mark.asyncio
+    async def test_moderator_fallback_when_id_not_in_agents(self):
+        """Falls back to round_robin when moderator_id doesn't match any agent."""
+        agents = [StubAgent("a"), StubAgent("b")]
+        config = ConversationConfig(
+            turn_policy=TurnPolicy.MODERATOR,
+            max_rounds=1,
+            moderator_id="ghost",
+        )
+        manager = ConversationManager(agents, config)
+        result = await manager.run("test topic")
+
+        assert len(result.history.messages) == 2
+
+
+# ---------------------------------------------------------------------------
+# ConversationHistory.get_agent_messages
+# ---------------------------------------------------------------------------
+
+
+class TestGetAgentMessages:
+    def test_returns_only_that_agents_messages(self):
+        h = ConversationHistory(topic="test")
+        h.add(ConversationMessage(agent_id="a", content="msg1", round_num=1))
+        h.add(ConversationMessage(agent_id="b", content="msg2", round_num=1))
+        h.add(ConversationMessage(agent_id="a", content="msg3", round_num=2))
+
+        msgs = h.get_agent_messages("a")
+        assert len(msgs) == 2
+        assert all(m.agent_id == "a" for m in msgs)
+
+    def test_returns_empty_for_unknown_agent(self):
+        h = ConversationHistory(topic="test")
+        h.add(ConversationMessage(agent_id="a", content="hi", round_num=1))
+
+        assert h.get_agent_messages("unknown") == []
+
+
+# ---------------------------------------------------------------------------
+# Multi-round stance persistence
+# ---------------------------------------------------------------------------
+
+
+class TestMultiRoundStance:
+    @pytest.mark.asyncio
+    async def test_stance_preserved_across_rounds(self):
+        """Stance set in round 1 should still be read correctly in round 2.
+
+        Verifies that _get_response copies metadata rather than popping from
+        the agent's dict in-place (which would reset stance to NEUTRAL in round 2).
+        """
+        agent = StubAgent("a", stance="firm", conviction=0.9)
+        config = ConversationConfig(
+            turn_policy=TurnPolicy.ROUND_ROBIN, max_rounds=2
+        )
+        manager = ConversationManager([agent], config)
+        result = await manager.run("test topic")
+
+        msgs = result.history.messages
+        assert len(msgs) == 2
+        assert msgs[0].stance == "firm"
+        assert msgs[0].conviction == 0.9
+        assert msgs[1].stance == "firm"   # NOT reset to "neutral"
+        assert msgs[1].conviction == 0.9  # NOT reset to 0.5
+
+
+# ---------------------------------------------------------------------------
+# Duplicate agent_id validation
+# ---------------------------------------------------------------------------
+
+
+class TestDuplicateAgentId:
+    def test_raises_on_duplicate_ids(self):
+        with pytest.raises(ValueError, match="Duplicate agent_id"):
+            ConversationManager([StubAgent("a"), StubAgent("a")])
