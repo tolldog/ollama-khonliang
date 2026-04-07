@@ -431,7 +431,7 @@ class KhonliangMCPServer:
                 "\n"
                 "## Code review (during development)\n"
                 "  - Write code for one logical piece\n"
-                "  - Run tests, linter, and type checker\n"
+                "  - Run tests, trunk check, and type checker\n"
                 "  - Present for review\n"
                 "  - Address all feedback before moving to next piece\n"
                 "\n"
@@ -449,7 +449,7 @@ class KhonliangMCPServer:
                 "  - Respond to every review comment\n"
                 "  - Resolve every conversation\n"
                 "  - Keep changes scoped — no domain bleed\n"
-                "  - Run linter before final push\n"
+                "  - Run trunk check before final push\n"
                 "  - Iterate until approved, then merge"
             ),
             "api": (
