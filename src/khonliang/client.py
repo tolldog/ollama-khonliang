@@ -189,6 +189,7 @@ class OllamaClient:
         """
         if n_samples < 1:
             raise ValueError(f"n_samples must be >= 1, got {n_samples}")
+
         if n_samples > 1:
             return await self._distill(
                 prompt=prompt,
@@ -294,10 +295,12 @@ class OllamaClient:
             raise RuntimeError("All distillation candidates failed")
 
         if len(valid) == 1:
-            # Only one survived — return it directly
+            # Only one survived — return it directly with metrics populated
             result = valid[0]
             result.candidates_generated = n_samples
             result.selected_index = 0
+            result.total_prompt_tokens = result.prompt_eval_count
+            result.total_eval_tokens = result.eval_count
             return result
 
         # Build selection prompt
@@ -315,6 +318,7 @@ class OllamaClient:
             temperature=0.1,  # Low temp for deterministic selection
             max_tokens=10,
             model=model,
+            extra_options=extra_options,
             keep_alive=keep_alive,
             n_samples=1,
         )
@@ -339,13 +343,15 @@ class OllamaClient:
             f"total tokens: {total_prompt + total_eval}"
         )
 
+        total_eval_duration = sum(c.eval_duration_ns for c in valid) + selection.eval_duration_ns
+
         return GenerationResult(
             text=chosen.text,
             model=chosen.model,
             prompt_eval_count=chosen.prompt_eval_count,
             eval_count=chosen.eval_count,
             total_duration_ns=total_duration,
-            eval_duration_ns=chosen.eval_duration_ns,
+            eval_duration_ns=total_eval_duration,
             candidates_generated=n_samples,
             selected_index=selected_idx,
             total_prompt_tokens=total_prompt,

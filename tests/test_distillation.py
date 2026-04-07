@@ -1,6 +1,5 @@
 """Tests for self-distillation inference mode (KH-14)."""
 
-import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -355,3 +354,43 @@ class TestDistill:
 
         assert result.total_prompt_tokens == 10 + 15 + 50
         assert result.total_eval_tokens == 20 + 25 + 2
+
+    @pytest.mark.asyncio
+    async def test_n_samples_zero_raises(self):
+        """n_samples < 1 should raise ValueError."""
+        client = OllamaClient(model="test")
+
+        with pytest.raises(ValueError, match="n_samples must be >= 1"):
+            await client.generate_with_metrics("test", n_samples=0)
+
+    @pytest.mark.asyncio
+    async def test_single_survivor_has_token_metrics(self):
+        """Single survivor should have total_prompt_tokens populated."""
+        client = OllamaClient(model="test")
+
+        good = _gen_result("survivor", prompt_tokens=15, eval_tokens=30)
+
+        call_count = 0
+
+        async def mock_gwm(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return good
+            raise RuntimeError("fail")
+
+        with patch.object(client, "generate_with_metrics",
+                          side_effect=mock_gwm):
+            result = await client._distill(
+                prompt="test",
+                system=None,
+                temperature=0.7,
+                max_tokens=4000,
+                model=None,
+                extra_options=None,
+                keep_alive=None,
+                n_samples=2,
+            )
+
+        assert result.total_prompt_tokens == 15
+        assert result.total_eval_tokens == 30
