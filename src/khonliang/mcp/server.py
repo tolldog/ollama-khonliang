@@ -84,7 +84,7 @@ class KhonliangMCPServer:
         ) -> str:
             """Search the knowledge store.
 
-            detail="compact": count|top_ids|scope (for agent loops)
+            detail="compact": hits|ids|scope|top (for agent loops)
             detail="brief": one line per result (id | title)
             detail="full": includes content preview, confidence, scope
             """
@@ -233,7 +233,7 @@ class KhonliangMCPServer:
         ) -> str:
             """Read blackboard entries.
 
-            detail="compact": count|keys (for agent loops)
+            detail="compact": section|keys|names (for agent loops)
             detail="brief": keys + truncated preview
             detail="full": keys + full content
             """

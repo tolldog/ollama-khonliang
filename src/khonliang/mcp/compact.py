@@ -31,7 +31,7 @@ Design principles:
     2. Brief for monitoring — structured, one-line-per-item
     3. Full for humans — rich detail with context
     4. Deterministic field order — dict insertion order preserved
-    5. Bounded field count — compact mode targets ~5 fields
+    5. Bounded field count — compact mode defaults to max 10 fields
     6. Separator-safe — values containing | or = are escaped
     7. Caveman rule — every token costs money. Data only.
 """
@@ -76,6 +76,8 @@ def format_response(
             return full_fn()
         if brief_fn is not None:
             return brief_fn()
+        if compact_fn is not None:
+            return compact_fn()
     else:  # brief (default)
         if brief_fn is not None:
             return brief_fn()
@@ -121,20 +123,22 @@ def compact_summary(
     for k, v in data.items():
         if len(parts) >= max_fields:
             break
-        if v is None or v == "" or v == 0:
+        if v is None or v == "":
             continue
-        parts.append(f"{_escape_value(str(k))}{_KV_SEP}{_escape_value(str(v))}")
+        parts.append(
+            f"{_escape_value(str(k), sep)}{_KV_SEP}{_escape_value(str(v), sep)}"
+        )
     return sep.join(parts)
 
 
-def _escape_value(value: str) -> str:
+def _escape_value(value: str, field_sep: str = _FIELD_SEP) -> str:
     """Escape separator characters in values.
 
-    Replaces | with ¦ and = with ≈ to prevent parsing ambiguity.
-    These are visually similar Unicode alternatives that won't appear
-    in normal data.
+    Replaces the field separator with ¦ and = with ≈ to prevent
+    parsing ambiguity.
     """
-    return value.replace(_FIELD_SEP, "¦").replace(_KV_SEP, "≈")
+    result = value.replace(field_sep, "¦")
+    return result.replace(_KV_SEP, "≈")
 
 
 def compact_list(

@@ -70,6 +70,15 @@ class TestFormatResponse:
         )
         assert result == "compact fallback"
 
+    def test_full_falls_back_to_compact(self):
+        result = format_response(
+            compact_fn=lambda: "compact fallback",
+            brief_fn=None,
+            full_fn=None,
+            detail="full",
+        )
+        assert result == "compact fallback"
+
     def test_all_none_returns_empty(self):
         result = format_response(detail="brief")
         assert result == ""
@@ -122,9 +131,17 @@ class TestCompactSummary:
         result = compact_summary({"caps": 158, "agents": 6})
         assert result == "caps=158|agents=6"
 
-    def test_skips_empty_values(self):
-        result = compact_summary({"a": 1, "b": "", "c": None, "d": 0, "e": "yes"})
+    def test_skips_none_and_empty(self):
+        result = compact_summary({"a": 1, "b": "", "c": None, "e": "yes"})
         assert result == "a=1|e=yes"
+
+    def test_preserves_zero(self):
+        result = compact_summary({"hits": 0, "pending": 3})
+        assert "hits=0" in result
+
+    def test_preserves_false(self):
+        result = compact_summary({"active": False, "count": 5})
+        assert "active=False" in result
 
     def test_custom_separator(self):
         result = compact_summary({"a": 1, "b": 2}, sep=",")
