@@ -82,33 +82,47 @@ class KhonliangMCPServer:
             max_results: int = 5,
             detail: str = "brief",
         ) -> str:
-            """Search the knowledge store. Returns compact results by default.
+            """Search the knowledge store.
 
+            detail="compact": count|top_ids|scope (for agent loops)
             detail="brief": one line per result (id | title)
             detail="full": includes content preview, confidence, scope
             """
-            from khonliang.mcp.compact import compact_list, truncate
+            from khonliang.mcp.compact import (
+                compact_list,
+                compact_summary,
+                format_response,
+                truncate,
+            )
 
             results = store.search(query, scope=scope, limit=max_results)
             if not results:
                 return f"No entries for: {query}"
 
-            if detail == "full":
-                lines = [f"{len(results)} entries:"]
-                for e in results:
-                    tier = e.tier.value if hasattr(e.tier, "value") else e.tier
-                    lines.append(
+            return format_response(
+                compact_fn=lambda: compact_summary({
+                    "hits": len(results),
+                    "ids": ",".join(e.id[:8] for e in results[:5]),
+                    "scope": scope,
+                    "top": results[0].title if results else "",
+                }),
+                brief_fn=lambda: compact_list(
+                    items=results,
+                    format_fn=lambda e: f"{e.id} | {e.title}",
+                    header=f"{len(results)} entries:",
+                    limit=max_results,
+                ),
+                full_fn=lambda: "\n".join(
+                    [f"{len(results)} entries:"]
+                    + [
                         f"[{e.id}] {e.title} "
-                        f"(T{tier}, {e.confidence:.0%}, {e.scope})\n"
+                        f"(T{e.tier.value if hasattr(e.tier, 'value') else e.tier}"
+                        f", {e.confidence:.0%}, {e.scope})\n"
                         f"  {truncate(e.content, 150)}"
-                    )
-                return "\n".join(lines)
-
-            return compact_list(
-                items=results,
-                format_fn=lambda e: f"{e.id} | {e.title}",
-                header=f"{len(results)} entries:",
-                limit=max_results,
+                        for e in results
+                    ]
+                ),
+                detail=detail,
             )
 
         @mcp.tool()
@@ -217,24 +231,40 @@ class KhonliangMCPServer:
         def blackboard_read(
             section: str, key: str = "", detail: str = "brief"
         ) -> str:
-            """Read blackboard entries. brief=keys+preview, full=with content."""
-            from khonliang.mcp.compact import truncate
+            """Read blackboard entries.
+
+            detail="compact": count|keys (for agent loops)
+            detail="brief": keys + truncated preview
+            detail="full": keys + full content
+            """
+            from khonliang.mcp.compact import (
+                compact_summary,
+                format_response,
+                truncate,
+            )
 
             entries = board.read(section, key=key or None)
             if not entries:
                 if key:
                     return f"Key '{key}' not found in {section}"
                 return f"No entries in {section}"
-            if detail == "full":
-                lines = [f"{section} ({len(entries)}):"]
-                for k, v in entries.items():
-                    lines.append(f"  [{k}]: {v}")
-                return "\n".join(lines)
-            # Brief: keys + truncated preview
-            lines = [f"{section} ({len(entries)}):"]
-            for k, v in entries.items():
-                lines.append(f"  {k}: {truncate(str(v), 60)}")
-            return "\n".join(lines)
+
+            return format_response(
+                compact_fn=lambda: compact_summary({
+                    "section": section,
+                    "keys": len(entries),
+                    "names": ",".join(list(entries.keys())[:5]),
+                }),
+                brief_fn=lambda: "\n".join(
+                    [f"{section} ({len(entries)}):"]
+                    + [f"  {k}: {truncate(str(v), 60)}" for k, v in entries.items()]
+                ),
+                full_fn=lambda: "\n".join(
+                    [f"{section} ({len(entries)}):"]
+                    + [f"  [{k}]: {v}" for k, v in entries.items()]
+                ),
+                detail=detail,
+            )
 
         @mcp.tool()
         def blackboard_context(
