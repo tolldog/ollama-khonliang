@@ -106,6 +106,16 @@ class TestGuideRegistration:
         assert "my_guide" in text
 
     @pytest.mark.asyncio
+    async def test_coding_guide_responses_topic(self, server_no_components):
+        app = server_no_components.create_app()
+        result = await app.call_tool("coding_guide", {"topic": "responses"})
+        text = result[0].text if hasattr(result[0], "text") else str(result[0])
+        assert "compact" in text
+        assert "brief" in text
+        assert "full" in text
+        assert "format_response" in text
+
+    @pytest.mark.asyncio
     async def test_coding_guide_structure_includes_features(self, server_no_components):
         app = server_no_components.create_app()
         result = await app.call_tool("coding_guide", {"topic": "structure"})
