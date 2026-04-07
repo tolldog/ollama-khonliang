@@ -5,7 +5,7 @@ Problem: MCP tools that return verbose markdown eat agent context windows.
 Solution: three response modes with compact-by-default for agent loops.
 
 Response modes:
-    compact — key=value pairs, pipe-delimited, no prose. ~5 fields max.
+    compact — key=value pairs, pipe-delimited, no prose. ~10 fields max.
               For agent control loops where every token costs money.
     brief   — structured one-line-per-item with small headers.
               For monitoring and human-scannable output.
