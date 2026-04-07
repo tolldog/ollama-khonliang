@@ -6,7 +6,7 @@ import pytest
 
 from khonliang.mcp.artifacts import CompactConcept, CompactFR, CompactSynthesis
 from khonliang.mcp.budget import ContextBudget
-from khonliang.mcp.compress import compress_for_agent, compress_rule_based, _try_parse_json
+from khonliang.mcp.compress import _try_parse_json, compress_for_agent, compress_rule_based
 
 
 class TestTryParseJson:
@@ -85,7 +85,8 @@ class TestCompressRuleBased:
         assert result.paper_count == 5
 
     def test_synthesis_from_plain_text(self):
-        result = compress_rule_based("token optimization\nfinding one\nfinding two", CompactSynthesis)
+        text = "token optimization\nfinding one\nfinding two"
+        result = compress_rule_based(text, CompactSynthesis)
         assert result.topic == "token optimization"
         assert len(result.key_findings) == 2
 
