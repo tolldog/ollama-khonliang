@@ -187,14 +187,17 @@ class TestCostBias:
 
 class TestConcurrency:
     def test_skips_busy_agent(self):
+        """When best agent is at capacity, next best is selected."""
         registry = CapabilityRegistry()
-        emb = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        # Give "busy" a perfect match, "free" a slightly weaker one
+        busy_emb = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        free_emb = [0.9, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
         registry.register("busy", [_cap(
-            "busy", "task", "do task", max_concurrent=1, embedding=emb,
+            "busy", "task", "do task", max_concurrent=1, embedding=busy_emb,
         )])
         registry.register("free", [_cap(
-            "free", "task", "do task", max_concurrent=0, embedding=emb,
+            "free", "task", "do task", max_concurrent=0, embedding=free_emb,
         )])
 
         router = TaskRouter(registry, config=TaskRouterConfig(
@@ -202,15 +205,15 @@ class TestConcurrency:
             prefer_available=True,
         ))
 
-        # First route goes to either
-        match1 = router.route("do task", task_embedding=emb)
+        # First route goes to "busy" (best match)
+        match1 = router.route("do task", task_embedding=busy_emb)
         assert match1 is not None
+        assert match1.agent_id == "busy"
 
-        if match1.agent_id == "busy":
-            # busy is now at capacity — second route should go to free
-            match2 = router.route("do task", task_embedding=emb)
-            assert match2 is not None
-            assert match2.agent_id == "free"
+        # busy is now at capacity — second route should go to free
+        match2 = router.route("do task", task_embedding=busy_emb)
+        assert match2 is not None
+        assert match2.agent_id == "free"
 
     def test_release_frees_slot(self):
         registry = CapabilityRegistry()
