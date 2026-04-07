@@ -1,5 +1,6 @@
 from khonliang.routing.flow import FlowAction, FlowClassification, FlowClassifier
 from khonliang.routing.model_router import ModelRouter
+from khonliang.routing.task_router import RouteMatch, TaskRouter, TaskRouterConfig
 from khonliang.routing.strategies import (
     CascadeStrategy,
     ComplexityStrategy,
@@ -24,4 +25,7 @@ __all__ = [
     "StaticStrategy",
     "ComplexityStrategy",
     "CascadeStrategy",
+    "TaskRouter",
+    "TaskRouterConfig",
+    "RouteMatch",
 ]

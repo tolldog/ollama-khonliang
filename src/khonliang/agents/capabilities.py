@@ -40,6 +40,8 @@ class AgentCapability:
         description: Human-readable description for LLM prompts
         input_schema: Optional JSON schema for structured input
         embedding: Optional vector for similarity-based task routing
+        cost_per_call: Relative cost for using this capability (0.0 = free/local)
+        max_concurrent: Max concurrent uses (0 = unlimited)
     """
 
     agent_id: str
@@ -47,6 +49,8 @@ class AgentCapability:
     description: str
     input_schema: Optional[Dict[str, Any]] = None
     embedding: Optional[List[float]] = field(default=None, repr=False)
+    cost_per_call: float = 0.0
+    max_concurrent: int = 0
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize to a plain dict."""
@@ -61,6 +65,8 @@ class AgentCapability:
             description=data["description"],
             input_schema=data.get("input_schema"),
             embedding=data.get("embedding"),
+            cost_per_call=data.get("cost_per_call", 0.0),
+            max_concurrent=data.get("max_concurrent", 0),
         )
 
 
