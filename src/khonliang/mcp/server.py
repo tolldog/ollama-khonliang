@@ -43,6 +43,7 @@ class KhonliangMCPServer:
         session: Optional[Any] = None,
         roles: Optional[Dict[str, Any]] = None,
         router: Optional[Any] = None,
+        guides: Optional[Dict[str, str]] = None,
     ):
         self.knowledge_store = knowledge_store
         self.triple_store = triple_store
@@ -52,11 +53,21 @@ class KhonliangMCPServer:
         self.router = router
         # Copy default guides so subclasses can extend without mutating base
         self.guide_tools: Dict[str, str] = dict(self._default_guides)
+        if guides:
+            self.guide_tools.update(guides)
 
     # Default guide tools — immutable class-level template.
     _default_guides: Dict[str, str] = {
         "catalog": "lists all tools, start here",
     }
+
+    def add_guide(self, name: str, description: str) -> None:
+        """Register a guide tool so it appears in the catalog.
+
+        Can be called before or after ``create_app()`` — the catalog
+        reads ``guide_tools`` at call time.
+        """
+        self.guide_tools[name] = description
 
     def create_app(self):
         """Create a FastMCP app with tools and resources registered."""
@@ -70,6 +81,7 @@ class KhonliangMCPServer:
         self._register_blackboard_tools(mcp)
         self._register_role_tools(mcp)
         self._register_session_tools(mcp)
+        self._register_coding_guide_tool(mcp)
         self._register_catalog_tool(mcp)
         self._register_resources(mcp)
 
@@ -331,6 +343,294 @@ class KhonliangMCPServer:
             """Get the current session context (recent exchanges, entities, topic)."""
             return session.build_context(max_turns=max_turns)
 
+    # -- Coding guide --
+
+    def _register_coding_guide_tool(self, mcp: Any) -> None:
+        self.add_guide("coding_guide", "development workflow and API reference")
+        server = self
+
+        @mcp.tool()
+        def coding_guide(topic: str = "workflow") -> str:
+            """Development workflow and khonliang API reference.
+
+            topic="workflow": full dev lifecycle (FR → spec → code → PR → merge)
+            topic="branches": worktree/branch conventions for milestones
+            topic="reviews": code review and PR review loop
+            topic="api": khonliang module map and quick-start
+            topic="client": OllamaClient / OpenAIClient usage
+            topic="roles": BaseRole, BaseRouter, ModelPool
+            topic="knowledge": KnowledgeStore, TripleStore, tiers
+            topic="consensus": AgentTeam, ConsensusEngine, voting
+            topic="mcp": extending KhonliangMCPServer, adding guides
+            """
+            sections = server._coding_guide_sections()
+            if topic in sections:
+                return sections[topic]
+            available = ", ".join(sorted(sections.keys()))
+            return f"Unknown topic '{topic}'. Available: {available}"
+
+    @staticmethod
+    def _coding_guide_sections() -> Dict[str, str]:
+        return {
+            "workflow": (
+                "# Development Workflow\n"
+                "\n"
+                "Every piece of work follows this lifecycle:\n"
+                "\n"
+                "  1. Feature Request (FR) — filed in the project tracker\n"
+                "  2. Spec — written in /specs for the milestone (MS-XXX)\n"
+                "     Read existing specs first. Flag gaps, don't deviate.\n"
+                "  3. Milestone doc — created/updated in MILESTONES.md\n"
+                "     One milestone covers one or more FRs.\n"
+                "  4. Branch — create worktree: ms-XXX/description\n"
+                "     All coding happens in worktrees, never on main/master.\n"
+                "  5. Code — implement with review loop at each step\n"
+                "     Write code, run tests, get review, iterate.\n"
+                "  6. Code review — respond to all review comments\n"
+                "     Resolve every conversation before proceeding.\n"
+                "  7. PR — create via gh pr create --base main\n"
+                "     Add copilot-pull-request-reviewer.\n"
+                "  8. PR review — respond to PR review feedback\n"
+                "     Iterate until approved.\n"
+                "  9. Merge — squash or merge to main\n"
+                "     Update MILESTONES.md, log in MILESTONE_LOG.md.\n"
+                "\n"
+                "Key rules:\n"
+                "  - Specs first, always. Don't code without a spec.\n"
+                "  - Review loop at every step — don't skip ahead.\n"
+                "  - One milestone = one or more FRs, one branch.\n"
+                "  - No architectural changes without approval.\n"
+                "\n"
+                "Call coding_guide(topic=...) for details on each phase."
+            ),
+            "branches": (
+                "# Branches & Worktrees\n"
+                "\n"
+                "All coding is done in git worktrees on milestone branches.\n"
+                "Never commit directly to main/master.\n"
+                "\n"
+                "## Naming\n"
+                "  Feature:  ms-XXX/description\n"
+                "  Hotfix:   hotfix/description\n"
+                "\n"
+                "## Creating a worktree\n"
+                "  git worktree add ../ms-XXX-description -b ms-XXX/description\n"
+                "  cd ../ms-XXX-description\n"
+                "\n"
+                "## One branch per milestone\n"
+                "  A milestone (MS-XXX) covers one or more Feature Requests (FRs).\n"
+                "  All FRs in that milestone go on the same branch.\n"
+                "\n"
+                "## After merge\n"
+                "  1. Update MILESTONES.md (mark complete)\n"
+                "  2. Log in MILESTONE_LOG.md\n"
+                "  3. Clean up worktree: git worktree remove ../ms-XXX-description"
+            ),
+            "reviews": (
+                "# Review Loop\n"
+                "\n"
+                "Every step has a review gate — don't skip ahead.\n"
+                "\n"
+                "## Code review (during development)\n"
+                "  - Write code for one logical piece\n"
+                "  - Run tests, linter (trunk), type checker (pyright)\n"
+                "  - Present for review\n"
+                "  - Address all feedback before moving to next piece\n"
+                "\n"
+                "## PR creation\n"
+                "  git checkout -b ms-XXX/feature-name  # (or use worktree)\n"
+                "  gh pr create --base main --title 'MS-XXX: Title'\n"
+                "  gh pr edit <PR> --add-reviewer copilot-pull-request-reviewer\n"
+                "\n"
+                "## PR review\n"
+                "  - Respond to every review comment\n"
+                "  - Resolve every conversation\n"
+                "  - No domain bleed — keep changes scoped to the milestone\n"
+                "  - Run trunk lint before final push\n"
+                "  - Iterate until approved, then merge"
+            ),
+            "api": (
+                "# khonliang — module map\n"
+                "\n"
+                "Multi-agent LLM orchestration for Ollama (and OpenAI-compatible APIs).\n"
+                "\n"
+                "## Install\n"
+                "  pip install khonliang\n"
+                "\n"
+                "## Modules\n"
+                "  khonliang.client        — OllamaClient (async, typed errors, retry)\n"
+                "  khonliang.openai_client — OpenAIClient (same interface, OpenAI backend)\n"
+                "  khonliang.protocols     — LLMClient protocol (type against this)\n"
+                "  khonliang.pool          — ModelPool (role → model mapping)\n"
+                "  khonliang.health        — ModelHealthTracker (cooldown on failures)\n"
+                "  khonliang.roles         — BaseRole, BaseRouter, SessionContext\n"
+                "  khonliang.knowledge     — KnowledgeStore (3-tier), TripleStore\n"
+                "  khonliang.consensus     — AgentTeam, ConsensusEngine, voting\n"
+                "  khonliang.gateway       — Blackboard (agent coordination)\n"
+                "  khonliang.mcp           — KhonliangMCPServer (MCP tool exposure)\n"
+                "  khonliang.rag           — RAG pipeline\n"
+                "  khonliang.training      — Feedback & training utilities\n"
+                "\n"
+                "## Minimal example\n"
+                "  from khonliang import OllamaClient\n"
+                "  client = OllamaClient(model='llama3.1:8b')\n"
+                "  response = await client.generate('Hello!')\n"
+                "\n"
+                "Call coding_guide(topic=...) for details on each subsystem."
+            ),
+            "client": (
+                "# OllamaClient & OpenAIClient\n"
+                "\n"
+                "  from khonliang import OllamaClient, GenerationResult\n"
+                "\n"
+                "  client = OllamaClient(\n"
+                "      model='llama3.1:8b',\n"
+                "      base_url='http://localhost:11434',  # default\n"
+                "  )\n"
+                "\n"
+                "  # Simple generation\n"
+                "  text = await client.generate('Summarize this', system='Be concise')\n"
+                "\n"
+                "  # With token metrics\n"
+                "  result: GenerationResult = await client.generate_with_metrics('Hello')\n"
+                "  # result.text, result.prompt_eval_count, result.eval_count\n"
+                "\n"
+                "  # Streaming\n"
+                "  async for chunk in client.stream_generate('Tell me a story'):\n"
+                "      print(chunk, end='')\n"
+                "\n"
+                "  # Structured JSON output\n"
+                "  data = await client.generate_json('Extract entities', schema={...})\n"
+                "\n"
+                "  # OpenAI-compatible backend (same interface)\n"
+                "  from khonliang import OpenAIClient\n"
+                "  oai = OpenAIClient(model='gpt-4o', api_key='sk-...')\n"
+                "\n"
+                "  # Type-annotate with the protocol for backend-agnostic code\n"
+                "  from khonliang import LLMClient\n"
+                "  async def summarize(client: LLMClient, text: str) -> str: ...\n"
+                "\n"
+                "## Error handling\n"
+                "  from khonliang import LLMTimeoutError, LLMUnavailableError, LLMModelNotFoundError\n"
+                "  # All extend LLMError. Retry is built in (3 attempts, exponential backoff).\n"
+                "  # Per-model timeouts: 3b=30s, 8b=60s, 32b=300s (configurable)."
+            ),
+            "roles": (
+                "# Roles, routing, and model pools\n"
+                "\n"
+                "  from khonliang import BaseRole, BaseRouter, ModelPool\n"
+                "\n"
+                "## ModelPool — map roles to models\n"
+                "  pool = ModelPool({\n"
+                "      'triage': 'llama3.2:3b',\n"
+                "      'researcher': 'qwen2.5:7b',\n"
+                "      'analyst': 'deepseek-r1:32b',\n"
+                "  })\n"
+                "  model = pool.get('triage')  # 'llama3.2:3b'\n"
+                "\n"
+                "## BaseRole — subclass to define agent behavior\n"
+                "  class TriageRole(BaseRole):\n"
+                "      async def handle(self, message, session_id='default'):\n"
+                "          response = await self.client.generate(message, system=self.system_prompt)\n"
+                "          return {'response': response, 'metadata': {'role': 'triage'}}\n"
+                "\n"
+                "## BaseRouter — route messages to roles\n"
+                "  class MyRouter(BaseRouter):\n"
+                "      def route(self, message: str) -> str:\n"
+                "          if 'urgent' in message.lower(): return 'triage'\n"
+                "          return 'researcher'\n"
+                "\n"
+                "## ModelHealthTracker — auto-cooldown on failures\n"
+                "  from khonliang import ModelHealthTracker\n"
+                "  tracker = ModelHealthTracker()\n"
+                "  tracker.record_failure('deepseek-r1:32b')\n"
+                "  if tracker.is_healthy('deepseek-r1:32b'): ..."
+            ),
+            "knowledge": (
+                "# Knowledge & Triples\n"
+                "\n"
+                "## KnowledgeStore — three-tier storage\n"
+                "  from khonliang.knowledge.store import KnowledgeStore, KnowledgeEntry, Tier\n"
+                "\n"
+                "  store = KnowledgeStore('data/knowledge.db')  # auto-creates schema\n"
+                "\n"
+                "  # Tiers:\n"
+                "  #   Tier.AXIOM (1)    — immutable rules, always in context\n"
+                "  #   Tier.IMPORTED (2) — user-provided docs, agent-managed\n"
+                "  #   Tier.DERIVED (3)  — agent-built, tagged with provenance\n"
+                "\n"
+                "  store.add(KnowledgeEntry(\n"
+                "      id='rule-001', tier=Tier.AXIOM,\n"
+                "      title='Safety rule', content='Always verify before acting',\n"
+                "      scope='global', source='human', confidence=1.0,\n"
+                "  ))\n"
+                "\n"
+                "  results = store.search('safety', scope='global', limit=5)\n"
+                "  context = store.build_context(query='safety', max_chars=1000)\n"
+                "  axioms = store.get_axioms()  # always-on Tier 1 entries\n"
+                "\n"
+                "## TripleStore — semantic triples (subject-predicate-object)\n"
+                "  from khonliang.knowledge.triples import TripleStore\n"
+                "\n"
+                "  triples = TripleStore('data/knowledge.db')\n"
+                "  triples.add('TSLA', 'has_pattern', 'mean_reversion', confidence=0.9)\n"
+                "  results = triples.get(subject='TSLA', limit=10)\n"
+                "  context = triples.build_context(subjects=['TSLA'], max_triples=20)"
+            ),
+            "consensus": (
+                "# Consensus — multi-agent voting\n"
+                "\n"
+                "  from khonliang.consensus import AgentTeam, ConsensusEngine\n"
+                "\n"
+                "  team = AgentTeam(agents=[\n"
+                "      {'name': 'bull', 'role': analyst_role, 'weight': 1.0},\n"
+                "      {'name': 'bear', 'role': contrarian_role, 'weight': 1.0},\n"
+                "  ])\n"
+                "  result = await team.evaluate('Should we buy TSLA at $250?')\n"
+                "  # result.decision, result.votes, result.confidence\n"
+                "\n"
+                "## Adaptive weights\n"
+                "  from khonliang.consensus import AdaptiveWeightManager, OutcomeTracker\n"
+                "  # Tracks agent accuracy over time and adjusts voting weights\n"
+                "\n"
+                "## Action vocabulary\n"
+                "  from khonliang.consensus import ActionVocabulary\n"
+                "  # Standardizes agent actions (BUY/SELL/HOLD) for consistent voting"
+            ),
+            "mcp": (
+                "# Extending KhonliangMCPServer\n"
+                "\n"
+                "  from khonliang.mcp import KhonliangMCPServer\n"
+                "  from khonliang.knowledge.store import KnowledgeStore\n"
+                "\n"
+                "  # Basic server with components\n"
+                "  server = KhonliangMCPServer(\n"
+                "      knowledge_store=KnowledgeStore('data/knowledge.db'),\n"
+                "      guides={'my_guide': 'explains my domain tools'},\n"
+                "  )\n"
+                "\n"
+                "  # Or add guides after construction\n"
+                "  server.add_guide('my_guide', 'explains my domain tools')\n"
+                "\n"
+                "  # Create the FastMCP app\n"
+                "  mcp = server.create_app()\n"
+                "\n"
+                "  # Register your own tools on the app\n"
+                "  @mcp.tool()\n"
+                "  def my_custom_tool(query: str) -> str:\n"
+                "      '''My domain-specific tool.'''\n"
+                "      return 'result'\n"
+                "\n"
+                "  # Guides appear in catalog output (marked with *)\n"
+                "  # They can be added before or after create_app()\n"
+                "\n"
+                "  # Run\n"
+                "  mcp.run(transport='stdio')  # or 'streamable-http'\n"
+                "\n"
+                "  # CLI: python -m khonliang.mcp --transport stdio --db data/knowledge.db"
+            ),
+        }
+
     # -- Catalog --
 
     def _register_catalog_tool(self, mcp: Any) -> None:
@@ -429,6 +729,7 @@ class KhonliangMCPServer:
             "invoke_role": "roles",
             "get_session": "session",
             "catalog": "meta",
+            "coding_guide": "meta",
         }
         for prefix, category in prefixes.items():
             if tool_name.startswith(prefix):
