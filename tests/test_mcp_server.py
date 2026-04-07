@@ -105,6 +105,16 @@ class TestGuideRegistration:
         text = result[0].text if hasattr(result[0], "text") else str(result[0])
         assert "my_guide" in text
 
+    @pytest.mark.asyncio
+    async def test_coding_guide_structure_includes_features(self, server_no_components):
+        app = server_no_components.create_app()
+        result = await app.call_tool("coding_guide", {"topic": "structure"})
+        text = result[0].text if hasattr(result[0], "text") else str(result[0])
+        assert "features/" in text
+        assert "FR-" in text
+        assert "request.md" in text
+        assert "evaluation.md" in text
+
     def test_add_guide_does_not_mutate_class_defaults(self):
         from khonliang.mcp.server import KhonliangMCPServer
 
