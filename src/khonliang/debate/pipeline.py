@@ -5,21 +5,22 @@ Implements the GRA collaborative framework from "A Strategic Coordination
 Framework of Small LLMs Matches Large LLMs in Data Synthesis" as a
 reusable base class.
 
-Roles:
-    - Generator: Produces initial assessment (any async callable)
-    - Reviewer: Critiques the assessment (any async callable)
-    - Adjudicator: Rule-based tiebreaker (BaseAdjudicator subclass)
+Roles (all optional beyond the generator):
+    - Generator:   Produces initial assessment (required; async callable)
+    - Reviewer:    Critiques the assessment (optional; async callable)
+    - Adjudicator: Rule-based tiebreaker (optional; BaseAdjudicator subclass)
 
-The pipeline is domain-agnostic. Concrete implementations provide:
-    - A generate function: (subject, context) -> assessment dict
-    - A review function: (subject, assessment, context) -> review dict
-    - An adjudicator: BaseAdjudicator subclass
+Resolution paths (reflected in GRAResult.resolved_by):
+    - "generator"   — no reviewer configured; generator result returned directly
+    - "consensus"   — reviewer agrees and verdicts match
+    - "reviewer"    — reviewer disagrees but no adjudicator configured
+    - "adjudicator" — reviewer disagrees and adjudicator resolves
 
 Usage:
     pipeline = GRAPipeline(
         generate_fn=my_generator,
-        review_fn=my_reviewer,
-        adjudicator=my_adjudicator,
+        review_fn=my_reviewer,       # optional
+        adjudicator=my_adjudicator,  # optional
     )
     result = await pipeline.evaluate(subject="TSLA", context=market_data)
 """
@@ -73,15 +74,16 @@ class GRAPipeline:
 
     Flow:
         1. Generator produces an assessment
-        2. Reviewer critiques the assessment
+        2. Reviewer critiques the assessment (optional; skip if review_fn is None)
         3. If they agree on verdict -> return consensus result
-        4. If they disagree -> Adjudicator applies domain criteria
+        4. If they disagree -> Adjudicator applies domain criteria (optional;
+           return reviewer verdict if adjudicator is None)
 
     The verdict_key parameter tells the pipeline which key in the
     assessment and review dicts holds the verdict string for
     agreement comparison.
 
-    Example:
+    Example (full pipeline):
         async def generate(subject, context=None):
             return {"verdict": "match", "confidence": 0.9, ...}
 
@@ -94,6 +96,11 @@ class GRAPipeline:
             adjudicator=my_adjudicator,
         )
         result = await pipeline.evaluate("compare persons A and B")
+
+    Example (generator-only):
+        pipeline = GRAPipeline(generate_fn=generate)
+        result = await pipeline.evaluate("assess this item")
+        # result.resolved_by == "generator"
     """
 
     def __init__(

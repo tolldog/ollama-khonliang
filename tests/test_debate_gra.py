@@ -11,7 +11,6 @@ from khonliang.debate.adjudicator import (
 from khonliang.debate.orchestrator import DebateConfig, DebateOrchestrator
 from khonliang.debate.pipeline import GRAPipeline, GRAResult
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
