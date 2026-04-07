@@ -126,7 +126,6 @@ class OpenAIClient:
         model: Optional[str] = None,
         extra_options: Optional[Dict[str, Any]] = None,
         keep_alive: Optional[str] = None,
-        n_samples: int = 1,
     ) -> str:
         """Generate text from a prompt. Returns the response string."""
         result = await self.generate_with_metrics(
@@ -137,7 +136,6 @@ class OpenAIClient:
             model=model,
             extra_options=extra_options,
             keep_alive=keep_alive,
-            n_samples=n_samples,
         )
         return result.text
 
@@ -150,11 +148,8 @@ class OpenAIClient:
         model: Optional[str] = None,
         extra_options: Optional[Dict[str, Any]] = None,
         keep_alive: Optional[str] = None,
-        n_samples: int = 1,
     ) -> GenerationResult:
         """Generate text and return a GenerationResult with token metrics."""
-        if n_samples < 1:
-            raise ValueError(f"n_samples must be >= 1, got {n_samples}")
         model_name = model or self.model
         model_timeout = self._get_timeout(model_name)
 
