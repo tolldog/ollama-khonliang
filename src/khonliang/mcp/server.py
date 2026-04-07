@@ -63,6 +63,7 @@ class KhonliangMCPServer:
     _default_guides: Dict[str, str] = {
         "catalog": "lists all tools, start here",
         "coding_guide": "development workflow and API reference",
+        "response_modes": "how tool responses work: compact/brief/full detail parameter",
     }
 
     def add_guide(self, name: str, description: str) -> None:
@@ -86,6 +87,7 @@ class KhonliangMCPServer:
         self._register_role_tools(mcp)
         self._register_session_tools(mcp)
         self._register_coding_guide_tool(mcp)
+        self._register_response_modes_tool(mcp)
         self._register_catalog_tool(mcp)
         self._register_resources(mcp)
 
@@ -367,7 +369,6 @@ class KhonliangMCPServer:
             topic="knowledge": KnowledgeStore, TripleStore, tiers
             topic="consensus": AgentTeam, ConsensusEngine, voting
             topic="mcp": extending KhonliangMCPServer, adding guides
-            topic="responses": detail parameter and compact/brief/full modes
             """
             sections = server._coding_guide_sections()
             if topic in sections:
@@ -729,7 +730,20 @@ class KhonliangMCPServer:
                 "  # CLI: python -m khonliang.mcp"
                 " --transport stdio --db data/knowledge.db"
             ),
-            "responses": (
+        }
+
+    # -- Response modes guide --
+
+    def _register_response_modes_tool(self, mcp: Any) -> None:
+
+        @mcp.tool()
+        def response_modes() -> str:
+            """How tool responses work. Read this before calling other tools.
+
+            Most tools accept a detail parameter: compact, brief, or full.
+            This guide explains each mode and when to use it.
+            """
+            return (
                 "# Response Modes\n"
                 "\n"
                 "Most khonliang MCP tools accept a `detail` parameter\n"
@@ -737,11 +751,11 @@ class KhonliangMCPServer:
                 "\n"
                 "## Three modes\n"
                 "  compact — key=value pairs, pipe-delimited, no prose.\n"
-                "            For agent control loops where every token costs.\n"
-                "            Example: tools=12|guides=catalog,coding_guide|categories=knowledge,triples\n"
+                "            For agent loops where every token costs.\n"
+                "            Example: tools=12|guides=catalog,coding_guide"
+                "|categories=knowledge,triples\n"
                 "\n"
-                "  brief   — structured one-line-per-item with small headers.\n"
-                "            For monitoring and human-scannable output. (default)\n"
+                "  brief   — one-line-per-item with small headers. (default)\n"
                 "            Example:\n"
                 "              === GUIDES (start here) ===\n"
                 "                * catalog: lists all tools\n"
@@ -751,39 +765,39 @@ class KhonliangMCPServer:
                 "  full    — rich detail with parameters and context.\n"
                 "            For humans who need the complete picture.\n"
                 "\n"
-                "## Usage in tool calls\n"
-                "  catalog(detail='compact')         # minimal, for agent loops\n"
-                "  knowledge_search(query, detail='brief')  # default\n"
-                "  blackboard_read(section, detail='full')  # all content\n"
+                "## Usage\n"
+                "  catalog(detail='compact')                # minimal\n"
+                "  knowledge_search(query, detail='brief')   # default\n"
+                "  blackboard_read(section, detail='full')   # everything\n"
                 "\n"
-                "## When to use each mode\n"
-                "  - Agent autonomously exploring: start with compact\n"
-                "  - Agent presenting to user: use brief\n"
+                "## When to use each\n"
+                "  - Exploring autonomously: start with compact\n"
+                "  - Presenting to user: use brief\n"
                 "  - User asks for details: use full\n"
                 "  - Iterative narrowing: compact → brief → full\n"
                 "\n"
                 "## Building tools with response modes\n"
-                "  from khonliang.mcp.compact import format_response, compact_summary\n"
+                "  from khonliang.mcp.compact import "
+                "format_response, compact_summary\n"
                 "\n"
                 "  @mcp.tool()\n"
                 "  def my_status(detail: str = 'brief') -> str:\n"
                 "      return format_response(\n"
                 "          compact_fn=lambda: compact_summary({\n"
-                "              'agents': 6, 'active': 3, 'pending': 12,\n"
+                "              'agents': 6, 'active': 3,\n"
                 "          }),\n"
-                "          brief_fn=lambda: '6 agents, 3 active, 12 pending',\n"
-                "          full_fn=lambda: render_full_status(),\n"
+                "          brief_fn=lambda: '6 agents, 3 active',\n"
+                "          full_fn=lambda: render_full(),\n"
                 "          detail=detail,\n"
                 "      )\n"
                 "\n"
-                "## Helpers\n"
-                "  compact_summary(dict)  — key=val|key=val (max 10 fields)\n"
+                "## Helpers (khonliang.mcp.compact)\n"
+                "  compact_summary(dict)  — key=val|key=val\n"
                 "  compact_list(items, format_fn)  — one line per item\n"
-                "  compact_entry(id, title, status, score)  — single entry\n"
+                "  compact_entry(id, title, status)  — single entry\n"
                 "  compact_kv(dict)  — comma-separated key=value\n"
                 "  truncate(text, max_chars)  — ellipsis truncation"
-            ),
-        }
+            )
 
     # -- Catalog --
 
@@ -884,6 +898,7 @@ class KhonliangMCPServer:
             "get_session": "session",
             "catalog": "meta",
             "coding_guide": "meta",
+            "response_modes": "meta",
         }
         for prefix, category in prefixes.items():
             if tool_name.startswith(prefix):
