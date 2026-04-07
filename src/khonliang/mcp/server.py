@@ -50,10 +50,11 @@ class KhonliangMCPServer:
         self.session = session
         self.roles = roles or {}
         self.router = router
+        # Copy default guides so subclasses can extend without mutating base
+        self.guide_tools: Dict[str, str] = dict(self._default_guides)
 
-    # Tools that serve as guides/entry-points for subsystems.
-    # Subclasses can extend this with their own guide tools.
-    _guide_tools: Dict[str, str] = {
+    # Default guide tools — immutable class-level template.
+    _default_guides: Dict[str, str] = {
         "catalog": "lists all tools, start here",
     }
 
@@ -333,7 +334,7 @@ class KhonliangMCPServer:
     # -- Catalog --
 
     def _register_catalog_tool(self, mcp: Any) -> None:
-        guide_tools = self._guide_tools
+        guide_tools = self.guide_tools
         server = self
 
         @mcp.tool()
@@ -343,9 +344,9 @@ class KhonliangMCPServer:
             Guide tools (marked with *) explain how to use subsystems —
             call them before diving into data tools.
 
-            detail="compact": tool=description pairs
+            detail="compact": tools|guides|categories counts
             detail="brief": grouped by category with guides highlighted
-            detail="full": includes parameters and detail modes
+            detail="full": includes parameters per tool
             """
             from khonliang.mcp.compact import compact_summary, format_response
 
@@ -372,9 +373,11 @@ class KhonliangMCPServer:
         """
         tools: Dict[str, tuple] = {}
 
-        # FastMCP stores tools differently across versions — try common patterns
+        # FastMCP stores tools in _tool_manager._tools or _tools depending on version
         tool_list = None
-        if hasattr(mcp, "_tools"):
+        if hasattr(mcp, "_tool_manager") and hasattr(mcp._tool_manager, "_tools"):
+            tool_list = mcp._tool_manager._tools
+        elif hasattr(mcp, "_tools"):
             tool_list = mcp._tools
         elif hasattr(mcp, "tools"):
             tool_list = mcp.tools
@@ -382,9 +385,15 @@ class KhonliangMCPServer:
         if tool_list is None:
             return tools
 
-        for name, tool in (
-            tool_list.items() if isinstance(tool_list, dict) else []
-        ):
+        # Handle both dict ({name: tool}) and list ([tool]) storage
+        if isinstance(tool_list, dict):
+            items = tool_list.items()
+        elif isinstance(tool_list, (list, tuple)):
+            items = [(getattr(t, "name", str(i)), t) for i, t in enumerate(tool_list)]
+        else:
+            items = []
+
+        for name, tool in items:
             doc = ""
             if hasattr(tool, "description"):
                 doc = tool.description or ""

@@ -92,6 +92,23 @@ class TestToolRegistration:
         assert tools[0].name == "catalog"
 
     @pytest.mark.asyncio
+    async def test_catalog_lists_registered_tools(self, server_with_blackboard):
+        app = server_with_blackboard.create_app()
+        result = await app.call_tool("catalog", {"detail": "brief"})
+        text = result[0].text if hasattr(result[0], "text") else str(result[0])
+        assert "blackboard_post" in text
+        assert "blackboard_read" in text
+        assert "GUIDES" in text
+
+    @pytest.mark.asyncio
+    async def test_catalog_compact_mode(self, server_with_blackboard):
+        app = server_with_blackboard.create_app()
+        result = await app.call_tool("catalog", {"detail": "compact"})
+        text = result[0].text if hasattr(result[0], "text") else str(result[0])
+        assert "tools=" in text
+        assert "guides=" in text
+
+    @pytest.mark.asyncio
     async def test_blackboard_tools_registered(self, server_with_blackboard):
         app = server_with_blackboard.create_app()
         tool_names = {t.name for t in await app.list_tools()}
