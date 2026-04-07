@@ -37,6 +37,14 @@ class TestCompactConcept:
         assert c.relevance == 0.0
         assert c.actionable is False
 
+    def test_to_compact_escapes_separators(self):
+        c = CompactConcept("name|with|pipes", 0.5, 1, "paper=title", False)
+        result = c.to_compact()
+        assert "name¦with¦pipes" in result
+        assert "paper≈title" in result
+        # Exactly 4 unescaped pipes as delimiters
+        assert result.count("|") == 4
+
 
 class TestCompactFR:
     def test_to_compact(self):

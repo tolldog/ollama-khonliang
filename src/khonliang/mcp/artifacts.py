@@ -16,6 +16,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+# Reuse the established escape rules from compact module
+_FIELD_SEP = "|"
+
+
+def _esc(value: str) -> str:
+    """Escape pipe and equals in field values for compact serialization."""
+    return value.replace(_FIELD_SEP, "¦").replace("=", "≈")
+
 
 @dataclass
 class CompactConcept:
@@ -30,8 +38,8 @@ class CompactConcept:
     def to_compact(self) -> str:
         act = "yes" if self.actionable else "no"
         return (
-            f"{self.name}|{self.relevance:.2f}|{self.paper_count}"
-            f"|{self.top_paper}|{act}"
+            f"{_esc(self.name)}|{self.relevance:.2f}|{self.paper_count}"
+            f"|{_esc(self.top_paper)}|{act}"
         )
 
     def to_brief(self) -> str:
@@ -65,7 +73,10 @@ class CompactFR:
 
     def to_compact(self) -> str:
         deps = ",".join(self.depends_on) if self.depends_on else "none"
-        return f"{self.id}|{self.priority}|{self.target}|{self.title}|deps={deps}"
+        return (
+            f"{_esc(self.id)}|{_esc(self.priority)}"
+            f"|{_esc(self.target)}|{_esc(self.title)}|deps={deps}"
+        )
 
     def to_brief(self) -> str:
         dep_str = f" (blocks: {', '.join(self.depends_on)})" if self.depends_on else ""
@@ -98,10 +109,15 @@ class CompactSynthesis:
     suggested_frs: list[str] = field(default_factory=list)
 
     def to_compact(self) -> str:
-        findings = "; ".join(self.key_findings[:5])
-        rel = ",".join(f"{k}:{v:.2f}" for k, v in self.relevance.items())
+        findings = "; ".join(_esc(f) for f in self.key_findings[:5])
+        rel = ",".join(
+            f"{_esc(k)}:{v:.2f}" for k, v in self.relevance.items()
+        )
         frs = ",".join(self.suggested_frs) if self.suggested_frs else "none"
-        return f"{self.topic}|{self.paper_count}|{findings}|rel={rel}|frs={frs}"
+        return (
+            f"{_esc(self.topic)}|{self.paper_count}"
+            f"|{findings}|rel={rel}|frs={frs}"
+        )
 
     def to_brief(self) -> str:
         lines = [f"{self.topic} ({self.paper_count} papers)"]

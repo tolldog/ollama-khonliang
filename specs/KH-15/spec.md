@@ -88,21 +88,23 @@ Each artifact type has a `.to_compact() -> str` method that formats for pipe-del
 ### 3. Post-Compression Helper (`khonliang.mcp.compress`)
 
 ```python
-def compress_for_agent(
+async def compress_for_agent(
     raw_text: str,
-    artifact_type: type,
+    artifact_type: type[T],
     budget: ContextBudget | None = None,
     model: str = "llama3.2:3b",
-) -> str:
+) -> T:
     """Compress raw LLM output into a structured artifact.
 
     Strategy:
     1. If raw_text is already structured (JSON/key-value), parse directly
     2. Otherwise, use a local model to extract fields into artifact_type
     3. Apply budget constraints
-    4. Return formatted string (compact or brief based on caller)
+    4. Return the structured artifact instance
 
-    Falls back to rule-based truncation if model is unavailable.
+    Callers serialize the returned artifact with `.to_compact()` or
+    `.to_brief()` based on the MCP response format they need.
+    Falls back to rule-based extraction if model is unavailable.
     """
 ```
 
@@ -131,9 +133,9 @@ This is the key new capability: a local model doing the compression work so the 
 | `docs/mcp-server.md`             | Context Compression section                       |
 | `docs/context-compression.md`    | New — full guide                                  |
 | `CLAUDE.md`                      | Design principle in MCP convention section        |
-| `tests/mcp/test_budget.py`       | Unit tests for budget logic                       |
-| `tests/mcp/test_artifacts.py`    | Unit tests for artifact formatting                |
-| `tests/mcp/test_compress.py`     | Unit tests for compression (mocked LLM)           |
+| `tests/test_budget.py`           | Unit tests for budget logic                       |
+| `tests/test_artifacts.py`        | Unit tests for artifact formatting                |
+| `tests/test_compress.py`         | Unit tests for compression (mocked LLM)           |
 
 ## Acceptance Criteria
 

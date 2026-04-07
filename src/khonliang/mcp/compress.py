@@ -17,11 +17,14 @@ Usage:
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any, TypeVar
 
 from khonliang.mcp.artifacts import CompactConcept, CompactFR, CompactSynthesis
 from khonliang.mcp.budget import ContextBudget, fit_to_budget
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T", CompactConcept, CompactFR, CompactSynthesis)
 
@@ -53,6 +56,7 @@ _SCHEMAS: dict[type, str] = {
 }
 
 _DEFAULT_MODEL = "llama3.2:3b"
+_COMPRESS_TIMEOUT = 10  # seconds — fast fallback on MCP request path
 
 
 async def compress_for_agent(
@@ -72,7 +76,7 @@ async def compress_for_agent(
 
     Args:
         raw_text: Raw LLM output or unstructured text.
-        artifact_type: Target artifact class (CompactConcept, CompactFR, etc.).
+        artifact_type: Target artifact class.
         budget: Optional budget to constrain list fields.
         model: Local model to use for compression.
         base_url: Ollama base URL.
@@ -88,20 +92,31 @@ async def compress_for_agent(
     # Model path: use local model to extract
     try:
         from khonliang.client import OllamaClient
+        from khonliang.errors import LLMError
+    except ImportError as exc:
+        logger.debug("compress_for_agent imports unavailable: %s", exc)
+        return _rule_based_build(raw_text, artifact_type, budget)
 
+    try:
         schema = _SCHEMAS.get(artifact_type, "{}")
-        prompt = _COMPRESS_PROMPT.format(schema=schema, text=raw_text[:2000])
+        prompt = _COMPRESS_PROMPT.format(
+            schema=schema, text=raw_text[:2000]
+        )
 
-        async with OllamaClient(model=model, base_url=base_url) as client:
+        async with OllamaClient(
+            model=model,
+            base_url=base_url,
+            timeout=_COMPRESS_TIMEOUT,
+        ) as client:
             result = await client.generate(prompt, model=model)
             parsed = _try_parse_json(result)
             if parsed is not None:
                 return _build_artifact(parsed, artifact_type, budget)
-    except Exception:
-        pass  # Fall through to rule-based
+    except (LLMError, OSError) as exc:
+        logger.debug("compress_for_agent model path failed: %s", exc)
 
-    # Fallback: rule-based extraction
-    return _rule_based_extract(raw_text, artifact_type)
+    # Fallback: rule-based extraction (budget still applied)
+    return _rule_based_build(raw_text, artifact_type, budget)
 
 
 def compress_rule_based(
@@ -117,7 +132,7 @@ def compress_rule_based(
     parsed = _try_parse_json(raw_text)
     if parsed is not None:
         return _build_artifact(parsed, artifact_type, budget)
-    return _rule_based_extract(raw_text, artifact_type)
+    return _rule_based_build(raw_text, artifact_type, budget)
 
 
 def _try_parse_json(text: str) -> dict[str, Any] | None:
@@ -131,19 +146,23 @@ def _try_parse_json(text: str) -> dict[str, Any] | None:
         pass
 
     # Try to find JSON block in markdown
-    match = re.search(r"```(?:json)?\s*\n?({.*?})\s*\n?```", text, re.DOTALL)
+    match = re.search(
+        r"```(?:json)?\s*\n?({.*?})\s*\n?```", text, re.DOTALL
+    )
     if match:
         try:
             return json.loads(match.group(1))
         except json.JSONDecodeError:
             pass
 
-    # Try to find bare JSON object
-    match = re.search(r"\{[^{}]*\}", text, re.DOTALL)
-    if match:
+    # Try to find bare JSON object using raw_decode (handles nesting)
+    idx = text.find("{")
+    if idx >= 0:
         try:
-            return json.loads(match.group(0))
-        except json.JSONDecodeError:
+            obj, _ = json.JSONDecoder().raw_decode(text, idx)
+            if isinstance(obj, dict):
+                return obj
+        except (json.JSONDecodeError, ValueError):
             pass
 
     return None
@@ -154,9 +173,8 @@ def _build_artifact(
     artifact_type: type[T],
     budget: ContextBudget | None = None,
 ) -> T:
-    """Construct an artifact from parsed data, applying budget to list fields."""
+    """Construct an artifact from parsed data, applying budget."""
     if budget is not None:
-        # Trim list fields to budget
         for key, val in data.items():
             if isinstance(val, list):
                 if all(isinstance(v, dict) for v in val):
@@ -166,28 +184,44 @@ def _build_artifact(
     return artifact_type.from_dict(data)
 
 
-def _rule_based_extract(raw_text: str, artifact_type: type[T]) -> T:
+def _rule_based_build(
+    raw_text: str,
+    artifact_type: type[T],
+    budget: ContextBudget | None = None,
+) -> T:
+    """Extract fields from raw text using heuristics, then apply budget."""
+    data = _rule_based_extract(raw_text, artifact_type)
+    return _build_artifact(data, artifact_type, budget)
+
+
+def _rule_based_extract(
+    raw_text: str, artifact_type: type[T]
+) -> dict[str, Any]:
     """Extract fields from raw text using simple heuristics."""
-    lines = [line.strip() for line in raw_text.strip().splitlines() if line.strip()]
+    lines = [
+        line.strip()
+        for line in raw_text.strip().splitlines()
+        if line.strip()
+    ]
 
     if artifact_type is CompactConcept:
-        return CompactConcept.from_dict({
+        return {
             "name": lines[0] if lines else "unknown",
             "relevance": 0.5,
             "paper_count": 0,
             "top_paper": lines[1] if len(lines) > 1 else "",
             "actionable": False,
-        })  # type: ignore[return-value]
+        }
     elif artifact_type is CompactFR:
-        return CompactFR.from_dict({
+        return {
             "id": "",
             "title": lines[0] if lines else "untitled",
             "priority": "medium",
             "target": "",
-        })  # type: ignore[return-value]
+        }
     else:  # CompactSynthesis
-        return CompactSynthesis.from_dict({
+        return {
             "topic": lines[0] if lines else "unknown",
             "paper_count": 0,
             "key_findings": lines[1:6] if len(lines) > 1 else [],
-        })  # type: ignore[return-value]
+        }

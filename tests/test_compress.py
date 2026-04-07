@@ -34,6 +34,11 @@ class TestTryParseJson:
     def test_invalid_json(self):
         assert _try_parse_json("{not: valid}") is None
 
+    def test_nested_json_in_text(self):
+        text = 'Result: {"topic": "test", "relevance": {"proj": 0.5}}'
+        result = _try_parse_json(text)
+        assert result == {"topic": "test", "relevance": {"proj": 0.5}}
+
 
 class TestCompressRuleBased:
     def test_concept_from_json(self):
@@ -84,7 +89,7 @@ class TestCompressRuleBased:
         assert result.topic == "token optimization"
         assert len(result.key_findings) == 2
 
-    def test_with_budget(self):
+    def test_with_budget_json_path(self):
         data = json.dumps({
             "topic": "test",
             "paper_count": 5,
@@ -93,6 +98,13 @@ class TestCompressRuleBased:
         budget = ContextBudget(max_items=3)
         result = compress_rule_based(data, CompactSynthesis, budget)
         assert len(result.key_findings) <= 5  # capped by from_dict
+
+    def test_with_budget_rule_based_path(self):
+        """Budget is applied even on the rule-based (non-JSON) path."""
+        text = "topic line\n" + "\n".join(f"finding {i}" for i in range(20))
+        budget = ContextBudget(max_items=3)
+        result = compress_rule_based(text, CompactSynthesis, budget)
+        assert len(result.key_findings) <= 3
 
     def test_empty_text(self):
         result = compress_rule_based("", CompactConcept)
