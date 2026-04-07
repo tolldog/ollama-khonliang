@@ -357,8 +357,10 @@ class KhonliangMCPServer:
             """Development workflow and khonliang API reference.
 
             topic="workflow": full dev lifecycle (FR → spec → code → PR → merge)
+            topic="structure": project directory layout for specs and milestones
             topic="branches": worktree/branch conventions for milestones
             topic="reviews": code review and PR review loop
+            topic="reviewer": guide for LLMs reviewing code and PRs
             topic="api": khonliang module map and quick-start
             topic="client": OllamaClient / OpenAIClient usage
             topic="roles": BaseRole, BaseRouter, ModelPool
@@ -403,6 +405,41 @@ class KhonliangMCPServer:
                 "  - Maintain the review loop at every step — don't skip ahead.\n"
                 "\n"
                 "Call coding_guide(topic=...) for details on each phase."
+            ),
+            "structure": (
+                "# Project Directory Structure\n"
+                "\n"
+                "Every project follows this layout for specs and milestones:\n"
+                "\n"
+                "  $PROJECT/\n"
+                "    specs/\n"
+                "      MS-001/\n"
+                "        spec.md          — the specification\n"
+                "        review.md        — spec review notes and feedback\n"
+                "      MS-002/\n"
+                "        spec.md\n"
+                "        review.md\n"
+                "    milestones/\n"
+                "      MS-001/\n"
+                "        milestone.md     — milestone plan, scope, and acceptance criteria\n"
+                "        review.md        — milestone review notes\n"
+                "        code_review.md   — code review feedback and resolutions\n"
+                "      MS-002/\n"
+                "        milestone.md\n"
+                "        review.md\n"
+                "        code_review.md\n"
+                "\n"
+                "## Specs (specs/MS-##/)\n"
+                "  spec.md    — what to build and why. Written before coding starts.\n"
+                "  review.md  — feedback on the spec. Gaps, concerns, approvals.\n"
+                "\n"
+                "## Milestones (milestones/MS-##/)\n"
+                "  milestone.md    — implementation plan. Maps FRs to tasks.\n"
+                "  review.md       — review of the milestone plan.\n"
+                "  code_review.md  — captures code review feedback during development.\n"
+                "\n"
+                "Each milestone covers one or more Feature Requests (FRs).\n"
+                "The MS number ties specs, milestones, and branches together."
             ),
             "branches": (
                 "# Branches & Worktrees\n"
@@ -452,6 +489,48 @@ class KhonliangMCPServer:
                 "  - Keep changes scoped — no domain bleed\n"
                 "  - Run trunk check before final push\n"
                 "  - Iterate until approved, then merge"
+            ),
+            "reviewer": (
+                "# Reviewer Guide (for LLMs)\n"
+                "\n"
+                "When reviewing code or PRs, follow these principles:\n"
+                "\n"
+                "## IMPORTANT: Read-only for code\n"
+                "  As a reviewer, you ONLY generate review files:\n"
+                "    specs/MS-##/review.md\n"
+                "    milestones/MS-##/review.md\n"
+                "    milestones/MS-##/code_review.md\n"
+                "  Everything else — source code, tests, configs — is READ ONLY.\n"
+                "  Never modify code directly. Put all feedback in review files.\n"
+                "\n"
+                "## What to check\n"
+                "  1. Scope — do the changes match the spec/milestone?\n"
+                "     No domain bleed, no unrelated refactors, no feature creep.\n"
+                "  2. Correctness — does the code do what it claims?\n"
+                "     Check edge cases, error handling, off-by-one, null/empty.\n"
+                "  3. Tests — are new behaviors covered? Are existing tests updated?\n"
+                "  4. Consistency — does it follow the project's existing patterns?\n"
+                "     Naming, structure, error handling style, logging conventions.\n"
+                "  5. Safety — no secrets, no injection, no unvalidated external input.\n"
+                "  6. Documentation — are docstrings/Args updated for API changes?\n"
+                "\n"
+                "## How to give feedback\n"
+                "  - Be specific: reference file:line, quote the code, explain why.\n"
+                "  - Distinguish blocking issues from suggestions/nits.\n"
+                "  - Suggest concrete fixes, not just 'this is wrong'.\n"
+                "  - One concern per comment — don't bundle unrelated issues.\n"
+                "  - Acknowledge what's done well, not just problems.\n"
+                "\n"
+                "## What NOT to do\n"
+                "  - Don't rewrite the PR — suggest, don't impose.\n"
+                "  - Don't flag style issues the linter would catch (trunk handles that).\n"
+                "  - Don't request changes outside the PR's scope.\n"
+                "  - Don't block on hypothetical future problems.\n"
+                "  - Don't repeat what another reviewer already said.\n"
+                "\n"
+                "## Review artifacts\n"
+                "  Capture review feedback in milestones/MS-##/code_review.md\n"
+                "  so decisions and resolutions are preserved for future reference."
             ),
             "api": (
                 "# khonliang — module map\n"
