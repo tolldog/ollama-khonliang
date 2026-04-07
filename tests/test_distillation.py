@@ -81,7 +81,7 @@ class TestDistill:
         with pytest.raises(ValueError, match="n_samples must be >= 1"):
             await client.generate_with_metrics("test prompt", n_samples=-1)
 
-
+    @pytest.mark.asyncio
     async def test_distill_selects_best(self):
         """Distillation should run N samples and a selection call."""
         client = OllamaClient(model="test")
