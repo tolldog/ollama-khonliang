@@ -83,13 +83,44 @@ class TestBlackboardTools:
         assert "sec2" in blackboard.sections
 
 
+class TestGuideRegistration:
+    def test_add_guide(self, server_no_components):
+        server_no_components.add_guide("my_guide", "explains my subsystem")
+        assert "my_guide" in server_no_components.guide_tools
+        assert server_no_components.guide_tools["my_guide"] == "explains my subsystem"
+
+    def test_guides_via_constructor(self):
+        from khonliang.mcp.server import KhonliangMCPServer
+
+        server = KhonliangMCPServer(guides={"foo_guide": "foo help"})
+        assert "foo_guide" in server.guide_tools
+        # default catalog guide still present
+        assert "catalog" in server.guide_tools
+
+    @pytest.mark.asyncio
+    async def test_added_guide_appears_in_catalog(self, server_no_components):
+        server_no_components.add_guide("my_guide", "explains my subsystem")
+        app = server_no_components.create_app()
+        result = await app.call_tool("catalog", {"detail": "brief"})
+        text = result[0].text if hasattr(result[0], "text") else str(result[0])
+        assert "my_guide" in text
+
+    def test_add_guide_does_not_mutate_class_defaults(self):
+        from khonliang.mcp.server import KhonliangMCPServer
+
+        s1 = KhonliangMCPServer()
+        s1.add_guide("extra", "test")
+        s2 = KhonliangMCPServer()
+        assert "extra" not in s2.guide_tools
+
+
 class TestToolRegistration:
     @pytest.mark.asyncio
-    async def test_only_catalog_when_no_components(self, server_no_components):
+    async def test_only_meta_tools_when_no_components(self, server_no_components):
         app = server_no_components.create_app()
         tools = await app.list_tools()
-        assert len(tools) == 1
-        assert tools[0].name == "catalog"
+        tool_names = {t.name for t in tools}
+        assert tool_names == {"catalog", "coding_guide"}
 
     @pytest.mark.asyncio
     async def test_catalog_lists_registered_tools(self, server_with_blackboard):
