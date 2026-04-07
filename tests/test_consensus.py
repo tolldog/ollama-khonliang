@@ -462,7 +462,7 @@ async def test_calculate_consensus_with_debate_triggers_and_recalculates():
         _debate_history = [{"rounds": 2}]
 
         async def run_debate(self, votes, subject, context):
-            return post_debate_votes
+            return post_debate_votes, None
 
     engine = ConsensusEngine(
         debate_orchestrator=MockOrchestrator(),
@@ -484,7 +484,7 @@ async def test_calculate_consensus_with_debate_empty_history_defaults_to_one():
         _debate_history: list = []
 
         async def run_debate(self, votes, subject, context):
-            return votes  # return original votes unchanged
+            return votes, None  # return original votes unchanged
 
     engine = ConsensusEngine(
         debate_orchestrator=MockOrchestrator(),
@@ -503,7 +503,7 @@ async def test_calculate_consensus_with_debate_no_history_attr():
 
     class MockOrchestrator:
         async def run_debate(self, votes, subject, context):
-            return votes
+            return votes, None
 
     engine = ConsensusEngine(
         debate_orchestrator=MockOrchestrator(),
@@ -515,3 +515,58 @@ async def test_calculate_consensus_with_debate_no_history_attr():
     ]
     result = await engine.calculate_consensus_with_debate(votes)
     assert result.debate_rounds == 1
+
+
+async def test_calculate_consensus_with_debate_tuple_return_votes():
+    """Engine handles new (votes, None) tuple return from GRA-wired orchestrator."""
+    post_debate_votes = [
+        _vote("a", "APPROVE", 0.9, "convinced"),
+        _vote("b", "APPROVE", 0.75, "changed mind"),
+    ]
+
+    class TupleOrchestrator:
+        _debate_history = [{"rounds": 1}]
+
+        async def run_debate(self, votes, subject, context):
+            return post_debate_votes, None  # tuple with no adjudication
+
+    engine = ConsensusEngine(
+        debate_orchestrator=TupleOrchestrator(),
+        debate_threshold=0.5,
+    )
+    votes = [
+        _vote("a", "APPROVE", 0.55, "lean"),
+        _vote("b", "REJECT", 0.45, "other lean"),
+    ]
+    result = await engine.calculate_consensus_with_debate(votes)
+    assert result.action == "APPROVE"
+    assert result.debate_rounds == 1
+
+
+async def test_calculate_consensus_with_debate_tuple_return_adjudicated():
+    """Engine uses adjudicated ConsensusResult directly when adjudicator fires."""
+    adjudicated = ConsensusResult(
+        action="REJECT",
+        confidence=0.88,
+        reason="[adjudicated] rule triggered",
+        debate_rounds=1,
+    )
+
+    class AdjudicatingOrchestrator:
+        _debate_history = [{"rounds": 1}]
+
+        async def run_debate(self, votes, subject, context):
+            return votes, adjudicated  # adjudicator resolved it
+
+    engine = ConsensusEngine(
+        debate_orchestrator=AdjudicatingOrchestrator(),
+        debate_threshold=0.5,
+    )
+    votes = [
+        _vote("a", "APPROVE", 0.55, "lean"),
+        _vote("b", "REJECT", 0.45, "other lean"),
+    ]
+    result = await engine.calculate_consensus_with_debate(votes)
+    assert result.action == "REJECT"
+    assert result.confidence == 0.88
+    assert "[adjudicated]" in result.reason
