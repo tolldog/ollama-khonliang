@@ -334,7 +334,6 @@ class KhonliangMCPServer:
     # -- Catalog --
 
     def _register_catalog_tool(self, mcp: Any) -> None:
-        guide_tools = self.guide_tools
         server = self
 
         @mcp.tool()
@@ -350,19 +349,20 @@ class KhonliangMCPServer:
             """
             from khonliang.mcp.compact import compact_summary, format_response
 
-            # Discover registered tools from the MCP app
+            # Discover registered tools and read guides at call time
             tool_map = server._discover_tools(mcp)
+            guides = server.guide_tools
 
             return format_response(
                 compact_fn=lambda: compact_summary({
                     "tools": len(tool_map),
-                    "guides": ",".join(sorted(guide_tools.keys())),
+                    "guides": ",".join(sorted(guides.keys())),
                     "categories": ",".join(sorted(
                         {cat for cat, _, _ in tool_map.values()}
                     )),
                 }),
-                brief_fn=lambda: server._format_catalog_brief(tool_map, guide_tools),
-                full_fn=lambda: server._format_catalog_full(tool_map, guide_tools),
+                brief_fn=lambda: server._format_catalog_brief(tool_map, guides),
+                full_fn=lambda: server._format_catalog_full(tool_map, guides),
                 detail=detail,
             )
 
@@ -391,9 +391,15 @@ class KhonliangMCPServer:
         elif isinstance(tool_list, (list, tuple)):
             items = [(getattr(t, "name", str(i)), t) for i, t in enumerate(tool_list)]
         else:
+            logger.warning(
+                f"Unknown tool storage type: {type(tool_list).__name__}. "
+                f"Catalog may be incomplete."
+            )
             items = []
 
         for name, tool in items:
+            from khonliang.mcp.compact import truncate
+
             doc = ""
             if hasattr(tool, "description"):
                 doc = tool.description or ""
@@ -409,7 +415,7 @@ class KhonliangMCPServer:
                 param_names = list(tool.parameters.get("properties", {}).keys())
                 params = ", ".join(param_names)
 
-            tools[name] = (category, doc[:100], params)
+            tools[name] = (category, truncate(doc, 100), params)
 
         return tools
 
