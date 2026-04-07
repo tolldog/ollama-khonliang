@@ -5,12 +5,14 @@ Wraps CapabilityRegistry with cost-aware selection, concurrency limits,
 and fallback chains. Inspired by the Federation of Agents (FoA) framework's
 semantic routing with cost-biased optimization.
 
+Concurrency is tracked at the agent level (not per-capability). Call
+release() after the routed task completes to free the slot.
+
 Usage:
     router = TaskRouter(registry)
-    match = router.route("analyze this data for anomalies")
+    match = router.route("analyze this data for anomalies", embed_fn=my_embed)
     if match:
-        agent = get_agent(match.agent_id)
-        result = await agent.handle(task)
+        result = await agents[match.agent_id].handle(task)
         router.release(match.agent_id)  # free concurrency slot
 """
 
@@ -31,8 +33,8 @@ class RouteMatch:
     Attributes:
         agent_id:    Selected agent
         capability:  Matched capability name
-        score:       Similarity score (0.0-1.0)
-        cost:        Cost of using this agent
+        score:       Effective score after cost bias (0.0-1.0)
+        cost:        Cost of using this capability
         description: Capability description
     """
 
@@ -69,6 +71,11 @@ class TaskRouterConfig:
     max_results: int = 5
     prefer_available: bool = True
 
+    def __post_init__(self) -> None:
+        self.similarity_threshold = max(0.0, min(1.0, self.similarity_threshold))
+        self.cost_weight = max(0.0, min(1.0, self.cost_weight))
+        self.max_results = max(1, self.max_results)
+
 
 class TaskRouter:
     """Routes tasks to the best available agent based on capabilities.
@@ -79,18 +86,13 @@ class TaskRouter:
     Scoring formula:
         effective_score = similarity * (1 - cost_weight) + (1 - normalized_cost) * cost_weight
 
-    Example:
-        registry = CapabilityRegistry()
-        registry.register("analyst", [
-            AgentCapability("analyst", "anomaly_detection", "Detect anomalies",
-                            cost_per_call=0.1, max_concurrent=2),
-        ])
+    Concurrency is tracked per-agent (not per-capability). An agent's
+    max_concurrent is the minimum positive value across its capabilities.
 
+    Example:
         router = TaskRouter(registry)
-        match = router.route("find anomalies in this dataset",
-                             embed_fn=my_embed_fn)
+        match = router.route("find anomalies", embed_fn=my_embed)
         if match:
-            # Use the agent
             result = await agents[match.agent_id].handle(task)
             router.release(match.agent_id)
     """
@@ -115,24 +117,19 @@ class TaskRouter:
     ) -> Optional[RouteMatch]:
         """Route a task to the best available agent.
 
-        Uses embedding similarity from the capability registry, then
-        applies cost-biased scoring and concurrency filtering.
-
         Args:
             task: Task description
             embed_fn: Function to embed the task text
             task_embedding: Pre-computed task embedding
-            context: Optional context (unused currently, reserved for
-                     constraint-based routing extensions)
+            context: Reserved for constraint-based routing extensions
 
         Returns:
             RouteMatch for the best agent, or None if no match found
         """
-        # Get similarity-ranked candidates from registry
         candidates = self.registry.find_capable(
             task=task,
             threshold=self.config.similarity_threshold,
-            limit=self.config.max_results * 2,  # over-fetch for filtering
+            limit=self.config.max_results * 2,
             embed_fn=embed_fn,
             task_embedding=task_embedding,
         )
@@ -149,45 +146,48 @@ class TaskRouter:
                     cost=cap.cost_per_call,
                     description=cap.description,
                 )
+                self._acquire(cap.agent_id)
                 self._record_route(match, "exact")
                 return match
             return None
 
-        # Score candidates with cost bias
-        scored = self._score_candidates(candidates)
+        # Score with cost bias, using best-matching capability per agent
+        scored = self._score_candidates(candidates, task_embedding, embed_fn, task)
 
-        # Filter by availability
         if self.config.prefer_available:
             scored = [
-                (agent_id, score) for agent_id, score in scored
-                if self._is_available(agent_id)
+                (aid, cap_name, score, cost)
+                for aid, cap_name, score, cost in scored
+                if self._is_available(aid)
             ]
 
         if not scored:
             return None
 
-        # Pick the best
-        best_agent_id, best_score = scored[0]
+        best_agent_id, best_cap_name, best_score, best_cost = scored[0]
 
-        # Find the matching capability for metadata
+        # Find description for the matched capability
         caps = self.registry.get_agent_capabilities(best_agent_id)
-        best_cap = caps[0] if caps else None
+        desc = ""
+        for c in caps:
+            if c.capability == best_cap_name:
+                desc = c.description
+                break
 
         match = RouteMatch(
             agent_id=best_agent_id,
-            capability=best_cap.capability if best_cap else task,
+            capability=best_cap_name,
             score=best_score,
-            cost=best_cap.cost_per_call if best_cap else 0.0,
-            description=best_cap.description if best_cap else "",
+            cost=best_cost,
+            description=desc,
         )
 
-        # Reserve concurrency slot
         self._acquire(best_agent_id)
         self._record_route(match, "semantic")
 
         logger.info(
             f"Routed task to {best_agent_id} "
-            f"(score={best_score:.3f}, cost={match.cost:.2f})"
+            f"(score={best_score:.3f}, cost={best_cost:.2f})"
         )
 
         return match
@@ -203,15 +203,6 @@ class TaskRouter:
 
         Useful for fan-out patterns where multiple agents should process
         the same task (e.g., ALL_THEN_ORGANIZE conversations).
-
-        Args:
-            task: Task description
-            n: Number of agents to return
-            embed_fn: Embedding function
-            task_embedding: Pre-computed embedding
-
-        Returns:
-            List of RouteMatch, sorted by score descending
         """
         candidates = self.registry.find_capable(
             task=task,
@@ -221,70 +212,112 @@ class TaskRouter:
             task_embedding=task_embedding,
         )
 
-        scored = self._score_candidates(candidates)
+        scored = self._score_candidates(candidates, task_embedding, embed_fn, task)
 
         if self.config.prefer_available:
             scored = [
-                (aid, s) for aid, s in scored if self._is_available(aid)
+                (aid, cap_name, s, cost)
+                for aid, cap_name, s, cost in scored
+                if self._is_available(aid)
             ]
 
         matches = []
-        for agent_id, score in scored[:n]:
+        for agent_id, cap_name, score, cost in scored[:n]:
             caps = self.registry.get_agent_capabilities(agent_id)
-            cap = caps[0] if caps else None
-            matches.append(RouteMatch(
+            desc = ""
+            for c in caps:
+                if c.capability == cap_name:
+                    desc = c.description
+                    break
+
+            match = RouteMatch(
                 agent_id=agent_id,
-                capability=cap.capability if cap else task,
+                capability=cap_name,
                 score=score,
-                cost=cap.cost_per_call if cap else 0.0,
-                description=cap.description if cap else "",
-            ))
+                cost=cost,
+                description=desc,
+            )
+            matches.append(match)
             self._acquire(agent_id)
+            self._record_route(match, "semantic_multi")
 
         return matches
 
     def release(self, agent_id: str) -> None:
-        """Release a concurrency slot for an agent.
-
-        Call this after the routed task completes.
-        """
+        """Release a concurrency slot for an agent."""
         with self._lock:
             count = self._active_counts.get(agent_id, 0)
             if count > 0:
                 self._active_counts[agent_id] = count - 1
 
     def _score_candidates(
-        self, candidates: List[Tuple[str, float]]
-    ) -> List[Tuple[str, float]]:
-        """Apply cost-biased scoring to similarity-ranked candidates.
+        self,
+        candidates: List[Tuple[str, float]],
+        task_embedding: Optional[List[float]],
+        embed_fn: Optional[Callable],
+        task: str,
+    ) -> List[Tuple[str, str, float, float]]:
+        """Score candidates with cost bias using the best-matching capability.
 
-        Formula: effective = similarity * (1 - w) + (1 - norm_cost) * w
-        where w = cost_weight and norm_cost = cost / max_cost.
+        Returns list of (agent_id, capability_name, effective_score, cost)
+        sorted by effective_score descending.
         """
         if not candidates:
             return []
 
         w = self.config.cost_weight
 
-        # Get costs for normalization
-        costs: Dict[str, float] = {}
-        for agent_id, _ in candidates:
+        # For each agent, find the best-matching capability and its cost
+        agent_info: Dict[str, Tuple[str, float, float]] = {}  # {id: (cap_name, sim, cost)}
+        for agent_id, similarity in candidates:
             caps = self.registry.get_agent_capabilities(agent_id)
-            costs[agent_id] = min(
-                (c.cost_per_call for c in caps), default=0.0
-            )
+            if not caps:
+                agent_info[agent_id] = ("", similarity, 0.0)
+                continue
 
-        max_cost = max(costs.values()) if costs else 1.0
+            # Find the best-matching capability by embedding similarity
+            best_cap_name = caps[0].capability
+            best_cost = caps[0].cost_per_call
+
+            if task_embedding or embed_fn:
+                from khonliang.agents.capabilities import _cosine_similarity
+
+                emb = task_embedding
+                if emb is None and embed_fn is not None:
+                    try:
+                        emb = embed_fn(task)
+                    except Exception:
+                        emb = None
+
+                if emb is not None:
+                    best_sim = -1.0
+                    for c in caps:
+                        if c.embedding is not None:
+                            sim = _cosine_similarity(emb, c.embedding)
+                            if sim > best_sim:
+                                best_sim = sim
+                                best_cap_name = c.capability
+                                best_cost = c.cost_per_call
+            else:
+                # No embeddings — use first capability
+                best_cap_name = caps[0].capability
+                best_cost = caps[0].cost_per_call
+
+            agent_info[agent_id] = (best_cap_name, similarity, best_cost)
+
+        # Normalize costs
+        costs = [info[2] for info in agent_info.values()]
+        max_cost = max(costs) if costs else 1.0
         if max_cost == 0:
-            max_cost = 1.0  # avoid division by zero
+            max_cost = 1.0
 
         scored = []
-        for agent_id, similarity in candidates:
-            norm_cost = costs.get(agent_id, 0.0) / max_cost
+        for agent_id, (cap_name, similarity, cost) in agent_info.items():
+            norm_cost = cost / max_cost
             effective = similarity * (1 - w) + (1 - norm_cost) * w
-            scored.append((agent_id, effective))
+            scored.append((agent_id, cap_name, effective, cost))
 
-        scored.sort(key=lambda x: -x[1])
+        scored.sort(key=lambda x: -x[2])
         return scored
 
     def _is_available(self, agent_id: str) -> bool:
@@ -295,7 +328,7 @@ class TaskRouter:
             default=0,
         )
         if max_conc == 0:
-            return True  # unlimited
+            return True
 
         with self._lock:
             return self._active_counts.get(agent_id, 0) < max_conc
@@ -309,24 +342,26 @@ class TaskRouter:
 
     def _record_route(self, match: RouteMatch, method: str) -> None:
         """Record a routing decision for observability."""
-        self._route_history.append({
-            "agent_id": match.agent_id,
-            "capability": match.capability,
-            "score": match.score,
-            "cost": match.cost,
-            "method": method,
-        })
+        with self._lock:
+            self._route_history.append({
+                "agent_id": match.agent_id,
+                "capability": match.capability,
+                "score": match.score,
+                "cost": match.cost,
+                "method": method,
+            })
 
     def get_stats(self) -> Dict[str, Any]:
         """Return routing statistics."""
-        return {
-            "total_routes": len(self._route_history),
-            "active_agents": {
-                k: v for k, v in self._active_counts.items() if v > 0
-            },
-            "config": {
-                "similarity_threshold": self.config.similarity_threshold,
-                "cost_weight": self.config.cost_weight,
-                "prefer_available": self.config.prefer_available,
-            },
-        }
+        with self._lock:
+            return {
+                "total_routes": len(self._route_history),
+                "active_agents": {
+                    k: v for k, v in self._active_counts.items() if v > 0
+                },
+                "config": {
+                    "similarity_threshold": self.config.similarity_threshold,
+                    "cost_weight": self.config.cost_weight,
+                    "prefer_available": self.config.prefer_available,
+                },
+            }
