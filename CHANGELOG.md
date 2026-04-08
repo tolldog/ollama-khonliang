@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.6.3] - 2026-04-07
+
+### Added
+
+- **KH-15: Context compression framework** — `ContextBudget` + `fit_to_budget()` for declaring output ceilings on MCP tools. Compressed artifact types (`CompactConcept`, `CompactFR`, `CompactSynthesis`) with `to_compact()`/`to_brief()` serialization. `compress_for_agent()` (async, local model) and `compress_rule_based()` (sync fallback) for post-compression. Establishes "local models are cheap, external context is expensive" as core design principle.
+
+### Deprecated
+
+- `brief_or_full()` — use `format_response()` with `compact_fn`/`brief_fn`/`full_fn` instead.
+
 ## [0.5.0] - 2026-04-03
 
 ### Added
