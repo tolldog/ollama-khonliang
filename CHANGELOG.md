@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.6.4] - 2026-04-07
+
+### Changed
+
+- **KH-16: Compact-by-default MCP responses** — `format_response()` and all MCP tool signatures now default to `detail="compact"`. Empty-result paths return `compact_summary()` instead of prose. External agents get minimal tokens by default and explicitly request `"brief"` or `"full"` when needed.
+
 ## [0.6.3] - 2026-04-07
 
 ### Added
