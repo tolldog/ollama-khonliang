@@ -106,7 +106,7 @@ class KhonliangMCPServer:
             query: str,
             scope: str = "global",
             max_results: int = 5,
-            detail: str = "brief",
+            detail: str = "compact",
         ) -> str:
             """Search the knowledge store.
 
@@ -123,7 +123,7 @@ class KhonliangMCPServer:
 
             results = store.search(query, scope=scope, limit=max_results)
             if not results:
-                return f"No entries for: {query}"
+                return compact_summary({"hits": 0, "query": query, "scope": scope})
 
             return format_response(
                 compact_fn=lambda: compact_summary({
@@ -255,7 +255,7 @@ class KhonliangMCPServer:
 
         @mcp.tool()
         def blackboard_read(
-            section: str, key: str = "", detail: str = "brief"
+            section: str, key: str = "", detail: str = "compact"
         ) -> str:
             """Read blackboard entries.
 
@@ -271,9 +271,7 @@ class KhonliangMCPServer:
 
             entries = board.read(section, key=key or None)
             if not entries:
-                if key:
-                    return f"Key '{key}' not found in {section}"
-                return f"No entries in {section}"
+                return compact_summary({"section": section, "keys": 0, "key": key or ""})
 
             return format_response(
                 compact_fn=lambda: compact_summary({
@@ -750,12 +748,12 @@ class KhonliangMCPServer:
                 "that controls response verbosity. Use it to save tokens.\n"
                 "\n"
                 "## Three modes\n"
-                "  compact — key=value pairs, pipe-delimited, no prose.\n"
+                "  compact — key=value pairs, pipe-delimited, no prose. (default)\n"
                 "            For agent loops where every token costs.\n"
                 "            Example: tools=12|guides=catalog,coding_guide,"
                 "response_modes|categories=knowledge,triples\n"
                 "\n"
-                "  brief   — one-line-per-item with small headers. (default)\n"
+                "  brief   — one-line-per-item with small headers.\n"
                 "            Example:\n"
                 "              === GUIDES (start here) ===\n"
                 "                * catalog: lists all tools\n"
@@ -766,8 +764,8 @@ class KhonliangMCPServer:
                 "            For humans who need the complete picture.\n"
                 "\n"
                 "## Usage\n"
-                "  catalog(detail='compact')                # minimal\n"
-                "  knowledge_search(query, detail='brief')   # default\n"
+                "  catalog(detail='compact')                # default\n"
+                "  knowledge_search(query, detail='brief')   # more readable\n"
                 "  blackboard_read(section, detail='full')   # everything\n"
                 "\n"
                 "## When to use each\n"
@@ -781,7 +779,7 @@ class KhonliangMCPServer:
                 "format_response, compact_summary\n"
                 "\n"
                 "  @mcp.tool()\n"
-                "  def my_status(detail: str = 'brief') -> str:\n"
+                "  def my_status(detail: str = 'compact') -> str:\n"
                 "      return format_response(\n"
                 "          compact_fn=lambda: compact_summary({\n"
                 "              'agents': 6, 'active': 3,\n"
@@ -805,7 +803,7 @@ class KhonliangMCPServer:
         server = self
 
         @mcp.tool()
-        def catalog(detail: str = "brief") -> str:
+        def catalog(detail: str = "compact") -> str:
             """List all available tools. Start here.
 
             Guide tools (marked with *) explain how to use subsystems —

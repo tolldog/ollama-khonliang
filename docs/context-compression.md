@@ -169,7 +169,7 @@ from khonliang.mcp.budget import ContextBudget, fit_to_budget, BUDGET_COMPACT, B
 from khonliang.mcp.artifacts import CompactConcept
 
 @mcp.tool()
-def concepts_for_project(project: str, detail: str = "brief") -> str:
+def concepts_for_project(project: str, detail: str = "compact") -> str:
     """Show concepts most relevant to a project."""
     raw = fetch_concepts(project)  # list of dicts
 

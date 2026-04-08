@@ -16,7 +16,7 @@ Usage:
     from khonliang.mcp.compact import format_response, compact_summary
 
     @mcp.tool()
-    def my_status(detail: str = "brief") -> str:
+    def my_status(detail: str = "compact") -> str:
         return format_response(
             compact_fn=lambda: compact_summary({
                 "agents": 6, "active": 3, "pending": 12,
@@ -52,7 +52,7 @@ def format_response(
     compact_fn: Optional[Callable[[], str]] = None,
     brief_fn: Optional[Callable[[], str]] = None,
     full_fn: Optional[Callable[[], str]] = None,
-    detail: str = "brief",
+    detail: str = "compact",
 ) -> str:
     """Switch between compact/brief/full output modes.
 
@@ -62,7 +62,11 @@ def format_response(
         full_fn: Returns rich detail for humans
         detail: "compact", "brief", or "full"
 
-    Falls back gracefully: compact -> brief -> full if a mode is missing.
+    Defaults to compact — external agents pay per token.
+    Falls back gracefully based on the requested detail:
+        - compact -> brief -> full
+        - brief -> compact -> full
+        - full -> brief -> compact
     """
     if detail == "compact":
         if compact_fn is not None:
@@ -78,7 +82,7 @@ def format_response(
             return brief_fn()
         if compact_fn is not None:
             return compact_fn()
-    else:  # brief (default)
+    else:  # brief
         if brief_fn is not None:
             return brief_fn()
         if compact_fn is not None:
