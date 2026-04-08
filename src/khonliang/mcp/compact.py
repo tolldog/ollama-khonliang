@@ -95,8 +95,17 @@ def brief_or_full(
 ) -> str:
     """Switch between brief/full output. Backward-compatible alias.
 
-    For new code, use format_response() which also supports compact mode.
+    .. deprecated::
+        Use :func:`format_response` which also supports compact mode.
     """
+    import warnings
+
+    warnings.warn(
+        "brief_or_full() is deprecated — use format_response() "
+        "with compact_fn/brief_fn/full_fn instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     return format_response(brief_fn=brief_fn, full_fn=full_fn, detail=detail)
 
 

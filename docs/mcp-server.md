@@ -129,6 +129,54 @@ Example workflow:
 3. Local Ollama narrator reads the new knowledge via `build_context()`
 4. Narrator generates a narrative enriched by Claude's research
 
+## Context Compression
+
+**Design principle:** Local models are cheap. External context is expensive. Every token sent to an external coding agent must earn its place.
+
+The MCP layer is the compression checkpoint. Tools should use local models (or rule-based heuristics) to compress raw data into structured artifacts before returning results to external agents.
+
+### Budget Framework
+
+Declare an output ceiling per tool:
+
+```python
+from khonliang.mcp import ContextBudget, fit_to_budget, BUDGET_COMPACT
+
+budget = ContextBudget(max_items=5, max_preview_chars=60)
+trimmed = fit_to_budget(raw_items, budget)
+```
+
+Presets: `BUDGET_COMPACT` (5 items, 40 chars), `BUDGET_BRIEF` (10 items, 80 chars), `BUDGET_FULL` (25 items, 200 chars).
+
+### Compressed Artifacts
+
+Canonical shapes for common MCP outputs:
+
+```python
+from khonliang.mcp import CompactConcept, CompactFR, CompactSynthesis
+
+concept = CompactConcept(name="rl", relevance=0.82, paper_count=5,
+                         top_paper="Policy Gradient Methods", actionable=True)
+concept.to_compact()  # "rl|0.82|5|Policy Gradient Methods|yes"
+concept.to_brief()    # "rl (82%) — 5 papers, top: Policy Gradient Methods [actionable]"
+```
+
+### Post-Compression
+
+Use a local model to compress raw text into artifacts:
+
+```python
+from khonliang.mcp import compress_for_agent, compress_rule_based, CompactSynthesis
+
+# Async — invokes local 3b model
+artifact = await compress_for_agent(raw_text, CompactSynthesis)
+
+# Sync fallback — rule-based only
+artifact = compress_rule_based(raw_text, CompactSynthesis)
+```
+
+See `docs/context-compression.md` for the full guide.
+
 ## Extending with Domain Tools
 
 For domain-specific tools, create a subclass or extend the server:
