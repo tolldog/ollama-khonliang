@@ -63,7 +63,10 @@ def format_response(
         detail: "compact", "brief", or "full"
 
     Defaults to compact — external agents pay per token.
-    Falls back gracefully: compact -> brief -> full if a mode is missing.
+    Falls back gracefully based on the requested detail:
+        - compact -> brief -> full
+        - brief -> compact -> full
+        - full -> brief -> compact
     """
     if detail == "compact":
         if compact_fn is not None:

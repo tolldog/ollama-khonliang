@@ -123,7 +123,7 @@ class KhonliangMCPServer:
 
             results = store.search(query, scope=scope, limit=max_results)
             if not results:
-                return f"No entries for: {query}"
+                return compact_summary({"hits": 0, "query": query, "scope": scope})
 
             return format_response(
                 compact_fn=lambda: compact_summary({
@@ -255,7 +255,7 @@ class KhonliangMCPServer:
 
         @mcp.tool()
         def blackboard_read(
-            section: str, key: str = "", detail: str = "brief"
+            section: str, key: str = "", detail: str = "compact"
         ) -> str:
             """Read blackboard entries.
 
@@ -271,9 +271,7 @@ class KhonliangMCPServer:
 
             entries = board.read(section, key=key or None)
             if not entries:
-                if key:
-                    return f"Key '{key}' not found in {section}"
-                return f"No entries in {section}"
+                return compact_summary({"section": section, "keys": 0, "key": key or ""})
 
             return format_response(
                 compact_fn=lambda: compact_summary({
@@ -805,7 +803,7 @@ class KhonliangMCPServer:
         server = self
 
         @mcp.tool()
-        def catalog(detail: str = "brief") -> str:
+        def catalog(detail: str = "compact") -> str:
             """List all available tools. Start here.
 
             Guide tools (marked with *) explain how to use subsystems —
