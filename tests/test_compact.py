@@ -83,12 +83,20 @@ class TestFormatResponse:
         result = format_response(detail="brief")
         assert result == ""
 
-    def test_default_is_brief(self):
+    def test_default_is_compact(self):
         result = format_response(
-            brief_fn=lambda: "default brief",
+            compact_fn=lambda: "default compact",
+            brief_fn=lambda: "brief",
             full_fn=lambda: "full",
         )
-        assert result == "default brief"
+        assert result == "default compact"
+
+    def test_default_falls_back_to_brief_when_no_compact(self):
+        result = format_response(
+            brief_fn=lambda: "brief fallback",
+            full_fn=lambda: "full",
+        )
+        assert result == "brief fallback"
 
 
 # ---------------------------------------------------------------------------

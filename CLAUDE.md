@@ -107,7 +107,7 @@ All MCP tool responses must be token-efficient. External agents (Claude, Codex, 
 - No preamble ("Here are the results:", "I found the following:")
 - No markdown headers in brief mode
 - Data only: `id | title | score` not paragraphs
-- Default to brief. Agent asks for `detail="full"` when needed
+- Default to compact. Agent asks for `detail="brief"` or `detail="full"` when needed
 - Use `khonliang.mcp.compact` helpers for consistent formatting
 - Use `ContextBudget` + `fit_to_budget()` to declare and enforce output ceilings
 - Use compressed artifact types (`CompactConcept`, `CompactFR`, `CompactSynthesis`) for structured outputs

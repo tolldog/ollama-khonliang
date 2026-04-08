@@ -106,7 +106,7 @@ class KhonliangMCPServer:
             query: str,
             scope: str = "global",
             max_results: int = 5,
-            detail: str = "brief",
+            detail: str = "compact",
         ) -> str:
             """Search the knowledge store.
 
