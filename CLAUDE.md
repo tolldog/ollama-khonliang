@@ -117,4 +117,4 @@ See `src/khonliang/mcp/compact.py` for formatting helpers, `src/khonliang/mcp/bu
 
 ## Project Origin
 
-This library was extracted from the [autostock](../autostock/) trading platform to provide a generic, domain-agnostic agent orchestration framework. All trading-specific logic remains in autostock; this library provides the reusable infrastructure.
+This library was extracted from a private application to provide a generic, domain-agnostic agent orchestration framework. Application-specific logic stays in consumer projects; this library provides the reusable infrastructure.

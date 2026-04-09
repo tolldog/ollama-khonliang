@@ -119,7 +119,7 @@
 
 ### Initial Release
 
-- Initial release extracted from autostock trading platform
+- Initial release extracted from a private application
 - Async Ollama client with typed errors, retry, streaming, and JSON generation
 - Model pool with role-based mapping and connection reuse
 - Model health tracker with cooldown enforcement
