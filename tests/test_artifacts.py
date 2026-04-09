@@ -92,7 +92,7 @@ class TestCompactSynthesis:
             topic="token opt",
             paper_count=3,
             key_findings=["finding 1", "finding 2"],
-            relevance={"autostock": 0.4, "khonliang": 0.9},
+            relevance={"developer": 0.4, "khonliang": 0.9},
             suggested_frs=["fr_abc"],
         )
         result = s.to_compact()

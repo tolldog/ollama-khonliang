@@ -4,7 +4,7 @@
 
 > **Local models are cheap. External context is expensive.**
 
-khonliang applications (researcher, genealogy, autostock) use local Ollama models to process, distill, and score data. The output flows to external coding agents (Claude, Codex) via MCP tools. Those agents pay per token — every verbose summary, narrative paragraph, or unfiltered list wastes their context window and budget.
+khonliang applications (researcher, developer, genealogy) use local Ollama models to process, distill, and score data. The output flows to external coding agents (Claude, Codex) via MCP tools. Those agents pay per token — every verbose summary, narrative paragraph, or unfiltered list wastes their context window and budget.
 
 The MCP response is the **compression checkpoint**. Before data crosses this boundary, it should be:
 
@@ -113,12 +113,12 @@ synthesis = CompactSynthesis(
     topic="token optimization",
     paper_count=3,
     key_findings=["80% cost reduction via caching", "Compact prompts outperform verbose"],
-    relevance={"autostock": 0.4, "khonliang": 0.9},
+    relevance={"developer": 0.4, "khonliang": 0.9},
     suggested_frs=["fr_khonliang_abc123"],
 )
 
 synthesis.to_compact()
-# "token optimization|3|80% cost reduction via caching; Compact prompts outperform verbose|rel=autostock:0.40,khonliang:0.90|frs=fr_khonliang_abc123"
+# "token optimization|3|80% cost reduction via caching; Compact prompts outperform verbose|rel=developer:0.40,khonliang:0.90|frs=fr_khonliang_abc123"
 ```
 
 All artifact types support `from_dict()` for construction from raw data (parsed JSON, database rows, etc.).
