@@ -5,7 +5,7 @@ Repo: `tolldog/ollama-khonliang`
 
 ## Summary
 
-- 0 docs drift findings, 0 stale/deprecated findings, 1 proposed actions, 0 applied changes
+- 0 docs drift findings, 0 stale/deprecated findings, 1 proposed action, 0 applied changes
 - Python files: 134
 - Test files: 24
 - Docs files: 24
