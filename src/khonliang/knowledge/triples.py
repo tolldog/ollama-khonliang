@@ -46,6 +46,21 @@ CREATE TABLE IF NOT EXISTS triples (
 CREATE INDEX IF NOT EXISTS idx_triples_subject ON triples(subject);
 CREATE INDEX IF NOT EXISTS idx_triples_predicate ON triples(predicate);
 CREATE INDEX IF NOT EXISTS idx_triples_object ON triples(object);
+
+-- Per-source provenance with its own confidence, so a fact asserted by several
+-- contributors keeps each one's strength independently. The triples row carries
+-- denormalized caches (``source`` = newline-joined tokens, ``confidence`` = max
+-- over sources) for backward-compatible reads; this table is the source of
+-- truth used to recompute them when a source is added or retracted
+-- (bug_khonliang-researcher_a905176b).
+CREATE TABLE IF NOT EXISTS triple_sources (
+    triple_id   INTEGER NOT NULL,
+    source      TEXT NOT NULL,
+    confidence  REAL DEFAULT 1.0,
+    PRIMARY KEY (triple_id, source)
+);
+
+CREATE INDEX IF NOT EXISTS idx_triple_sources_tid ON triple_sources(triple_id);
 """
 
 
@@ -61,6 +76,17 @@ class Triple:
     created_at: float = 0.0
     updated_at: float = 0.0
     access_count: int = 0
+
+    @property
+    def sources(self) -> List[str]:
+        """Provenance tokens for this triple (``source`` may hold several).
+
+        ``source`` stays a plain string for backward compatibility; use this
+        when a triple can have more than one contributor (e.g. a fact asserted
+        by both a paper and a blog) so callers don't have to know the
+        on-disk encoding.
+        """
+        return split_sources(self.source)
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize triple to a plain dict."""
@@ -96,6 +122,25 @@ def normalize_predicate(predicate: str, aliases: Optional[Dict[str, str]] = None
     if aliases and p in aliases:
         p = aliases[p]
     return p
+
+
+# A triple's ``source`` column holds a *set* of contributor tokens (e.g. two
+# different documents that each asserted the same fact), newline-joined. A
+# single-source triple is stored as the bare token with no separator, so legacy
+# rows and the common case are byte-for-byte unchanged.
+_SOURCE_SEP = "\n"
+
+
+def split_sources(raw: Optional[str]) -> List[str]:
+    """Parse a stored ``source`` value into its ordered, de-duped token list."""
+    if not raw:
+        return []
+    out: List[str] = []
+    for part in raw.split(_SOURCE_SEP):
+        tok = part.strip()
+        if tok and tok not in out:
+            out.append(tok)
+    return out
 
 
 class TripleStore:
@@ -140,6 +185,25 @@ class TripleStore:
         conn = self._conn()
         try:
             conn.executescript(_TRIPLE_SCHEMA)
+            # Backfill provenance for legacy triples written before the
+            # per-source table existed, so the "every triple has >=1 source row"
+            # invariant holds: one ``triple_sources`` row per token in the
+            # denormalized ``source`` string (or a single anonymous "" row when
+            # the triple had no source), seeded with the triple's confidence.
+            # Idempotent — only triples with no rows yet are touched, so it's a
+            # no-op on every construction after the first.
+            legacy = conn.execute(
+                "SELECT id, source, confidence FROM triples "
+                "WHERE id NOT IN (SELECT DISTINCT triple_id FROM triple_sources)"
+            ).fetchall()
+            for row in legacy:
+                tokens = split_sources(row["source"]) or [""]
+                for tok in tokens:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO triple_sources "
+                        "(triple_id, source, confidence) VALUES (?, ?, ?)",
+                        (row["id"], tok, row["confidence"]),
+                    )
             conn.commit()
         finally:
             conn.close()
@@ -147,6 +211,39 @@ class TripleStore:
     def _normalize_predicate(self, predicate: str) -> str:
         """Normalize a predicate using the store's aliases."""
         return normalize_predicate(predicate, self.predicate_aliases)
+
+    @staticmethod
+    def _resync_denormalized(conn, triple_id: int, *, touch_updated: bool) -> bool:
+        """Refresh a triple's cached ``source``/``confidence`` from its sources.
+
+        Returns False if the triple still has sources (row kept); True if it has
+        none left and the triple row was deleted. ``touch_updated`` controls
+        whether ``updated_at`` is bumped — adds reinforce (bump), source removals
+        must not, or a retraction would reset the decay clock.
+        """
+        rows = conn.execute(
+            "SELECT source, confidence FROM triple_sources "
+            "WHERE triple_id = ? ORDER BY rowid",
+            (triple_id,),
+        ).fetchall()
+        if not rows:
+            conn.execute("DELETE FROM triples WHERE id = ?", (triple_id,))
+            return True
+        # Anonymous ("") rows count toward confidence but carry no display token.
+        new_source = _SOURCE_SEP.join(r["source"] for r in rows if r["source"])
+        new_conf = max(r["confidence"] for r in rows)
+        if touch_updated:
+            conn.execute(
+                "UPDATE triples SET source = ?, confidence = ?, updated_at = ? "
+                "WHERE id = ?",
+                (new_source, new_conf, time.time(), triple_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE triples SET source = ?, confidence = ? WHERE id = ?",
+                (new_source, new_conf, triple_id),
+            )
+        return False
 
     def add(
         self,
@@ -162,11 +259,16 @@ class TripleStore:
         The predicate is auto-normalized (lowercased, underscored,
         aliases applied) before storage.
 
-        If the triple already exists, confidence is updated to the
-        max of current and new, and the timestamp is refreshed.
+        If the triple already exists the ``source`` is *unioned* into its
+        provenance (rather than overwriting it), each source keeping its own
+        confidence; the triple's cached ``confidence`` is the max across
+        sources and the timestamp is refreshed. A later :meth:`remove_source`
+        can then drop one contributor — and recompute confidence from those
+        that remain — without losing the fact (bug a905176b).
         """
         predicate = self._normalize_predicate(predicate)
         now = time.time()
+        token = (source or "").strip()
         conn = self._conn()
         try:
             existing = conn.execute(
@@ -176,25 +278,48 @@ class TripleStore:
             ).fetchone()
 
             if existing:
-                new_confidence = max(existing["confidence"], confidence)
+                triple_id = existing["id"]
                 conn.execute(
-                    "UPDATE triples SET confidence = ?, updated_at = ?, "
-                    "source = ?, access_count = access_count + 1 "
+                    "UPDATE triples SET access_count = access_count + 1 "
                     "WHERE id = ?",
-                    (new_confidence, now, source, existing["id"]),
+                    (triple_id,),
                 )
             else:
-                conn.execute(
+                cur = conn.execute(
                     "INSERT INTO triples "
                     "(subject, predicate, object, confidence, source, "
                     "created_at, updated_at, decay_rate) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    (subject, predicate, obj, confidence, source,
+                    (subject, predicate, obj, confidence, token,
                      now, now, self.default_decay_rate),
                 )
+                triple_id = cur.lastrowid
+
+            # Every triple carries its evidence in ``triple_sources`` — even an
+            # anonymous (source="") assertion gets a row — so the invariant
+            # "every triple has >=1 provenance row" holds. That lets decay act
+            # on the authoritative per-source confidences and stops a later
+            # sourced add from discarding earlier anonymous evidence. A source
+            # re-asserting its own claim keeps the stronger value (max).
+            self._upsert_source(conn, triple_id, token, confidence)
+            self._resync_denormalized(conn, triple_id, touch_updated=True)
             conn.commit()
         finally:
             conn.close()
+
+    @staticmethod
+    def _upsert_source(conn, triple_id: int, source: str, confidence: float) -> None:
+        """Insert or strengthen (max) a single source's confidence for a triple.
+
+        ``source`` may be ``""`` — the provenance row for an anonymous
+        assertion, so its confidence is tracked and decayed like any other.
+        """
+        conn.execute(
+            "INSERT INTO triple_sources (triple_id, source, confidence) "
+            "VALUES (?, ?, ?) ON CONFLICT(triple_id, source) DO UPDATE SET "
+            "confidence = MAX(confidence, excluded.confidence)",
+            (triple_id, source, confidence),
+        )
 
     def get(
         self,
@@ -345,16 +470,28 @@ class TripleStore:
         cutoff = now - (max_age_days * 86400)
         conn = self._conn()
         try:
-            # Decay confidence based on age since last update
+            # Decay the authoritative per-source confidences (not just the
+            # cached triples.confidence) so decay survives a later add/
+            # remove_source recompute. Each source decays by its triple's
+            # decay_rate. Then refresh the cached max from the decayed rows.
+            stale = "(SELECT id FROM triples WHERE updated_at < ? AND decay_rate > 0)"
             conn.execute(
-                "UPDATE triples SET confidence = confidence * (1 - decay_rate) "
-                "WHERE updated_at < ? AND decay_rate > 0",
+                "UPDATE triple_sources SET confidence = confidence * (1 - "
+                "(SELECT decay_rate FROM triples WHERE triples.id = "
+                f"triple_sources.triple_id)) WHERE triple_id IN {stale}",  # nosec B608
+                (cutoff,),
+            )
+            conn.execute(
+                "UPDATE triples SET confidence = (SELECT MAX(confidence) "
+                "FROM triple_sources WHERE triple_id = triples.id) "
+                f"WHERE id IN {stale}",  # nosec B608
                 (cutoff,),
             )
             # Remove very low confidence triples
             cursor = conn.execute(
                 "DELETE FROM triples WHERE confidence < 0.1"
             )
+            self._prune_orphan_sources(conn)
             conn.commit()
             removed = cursor.rowcount
             if removed:
@@ -385,8 +522,62 @@ class TripleStore:
                 f"DELETE FROM triples WHERE {' AND '.join(conditions)}",  # nosec B608
                 params,
             )
+            self._prune_orphan_sources(conn)
             conn.commit()
             return cursor.rowcount
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _prune_orphan_sources(conn) -> None:
+        """Drop provenance rows whose triple was hard-deleted (no FK cascade)."""
+        conn.execute(
+            "DELETE FROM triple_sources WHERE triple_id NOT IN "
+            "(SELECT id FROM triples)"
+        )
+
+    def remove_source(
+        self,
+        subject: str,
+        predicate: str,
+        obj: str,
+        source: str,
+    ) -> bool:
+        """Drop one provenance token from a triple, deleting it only if last.
+
+        The counterpart to :meth:`add`'s source union: when a contributor is
+        retracted (e.g. a paper is struck), remove just *its* token. The triple
+        survives as long as any other source still asserts it, and is deleted
+        only when ``source`` was its sole provenance.
+
+        Returns ``True`` if the triple row was deleted (that was its last
+        source), ``False`` if it was kept (other sources remain) or nothing
+        matched (no such triple, or it didn't carry ``source``). Use
+        :meth:`remove` for an unconditional delete regardless of provenance.
+        """
+        predicate = self._normalize_predicate(predicate)
+        token = (source or "").strip()
+        conn = self._conn()
+        try:
+            row = conn.execute(
+                "SELECT id FROM triples "
+                "WHERE subject = ? AND predicate = ? AND object = ?",
+                (subject, predicate, obj),
+            ).fetchone()
+            if row is None:
+                return False
+            cur = conn.execute(
+                "DELETE FROM triple_sources WHERE triple_id = ? AND source = ?",
+                (row["id"], token),
+            )
+            if cur.rowcount == 0:
+                return False  # this source never asserted the triple
+            # Recompute confidence from the survivors (so retracting the
+            # strongest source lowers the fact); don't touch updated_at — a
+            # retraction must not reset the decay clock.
+            deleted = self._resync_denormalized(conn, row["id"], touch_updated=False)
+            conn.commit()
+            return deleted
         finally:
             conn.close()
 
