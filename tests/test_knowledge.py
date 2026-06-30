@@ -4,11 +4,16 @@ import os
 import tempfile
 import time
 
+import pytest
+
 from khonliang.knowledge.ingestion import IngestionPipeline
 from khonliang.knowledge.librarian import Librarian
 from khonliang.knowledge.reports import ReportBuilder
 from khonliang.knowledge.store import KnowledgeEntry, KnowledgeStore, Tier
-from khonliang.knowledge.triples import TripleStore
+from khonliang.knowledge.triples import (
+    TripleStore,
+    split_sources,
+)
 
 
 def _temp_store():
@@ -414,6 +419,221 @@ def test_triple_dedup_keeps_lower_when_existing_higher():
         assert len(triples) == 1
         # confidence stays at max (0.9)
         assert triples[0].confidence == 0.9
+    finally:
+        os.unlink(path)
+
+
+# Multi-source provenance (bug_khonliang-researcher_a905176b)
+# ------------------------------------------------------------------
+
+
+def test_split_sources():
+    assert split_sources("") == []
+    assert split_sources(None) == []
+    assert split_sources("paper:a") == ["paper:a"]
+    assert split_sources("paper:a\nidea:b\npaper:a") == ["paper:a", "idea:b"]
+
+
+def test_single_source_is_stored_bare_and_backward_compatible():
+    store, path = _temp_triple_store()
+    try:
+        store.add("S", "p", "O", confidence=0.7, source="paper:x")
+        t = store.get(subject="S")[0]
+        assert t.source == "paper:x"          # no separator for the common case
+        assert t.sources == ["paper:x"]
+    finally:
+        os.unlink(path)
+
+
+def test_add_unions_sources_and_keeps_max_confidence():
+    # A blog re-asserting a paper's triple must NOT clobber the paper's source
+    # or downgrade its confidence — it adds a second provenance token.
+    store, path = _temp_triple_store()
+    try:
+        store.add("S", "p", "O", confidence=0.8, source="paper:x")
+        store.add("S", "p", "O", confidence=0.4, source="idea:y")
+
+        triples = store.get(subject="S")
+        assert len(triples) == 1                       # still one row
+        assert triples[0].confidence == 0.8            # paper's higher conf wins
+        assert triples[0].sources == ["paper:x", "idea:y"]
+    finally:
+        os.unlink(path)
+
+
+def test_remove_source_keeps_triple_while_other_sources_remain():
+    store, path = _temp_triple_store()
+    try:
+        store.add("S", "p", "O", source="paper:x")
+        store.add("S", "p", "O", source="idea:y")
+
+        deleted = store.remove_source("S", "p", "O", "paper:x")
+        assert deleted is False                        # idea:y still supports it
+        t = store.get(subject="S")
+        assert len(t) == 1 and t[0].sources == ["idea:y"]
+    finally:
+        os.unlink(path)
+
+
+def test_remove_strongest_source_recomputes_confidence_to_remaining_max():
+    # Per-source confidence: striking the 0.9 paper must drop the surviving
+    # fact to the 0.4 blog's strength, not leave it overstated at 0.9.
+    store, path = _temp_triple_store()
+    try:
+        store.add("S", "p", "O", confidence=0.9, source="paper:x")
+        store.add("S", "p", "O", confidence=0.4, source="idea:y")
+        assert store.get(subject="S")[0].confidence == 0.9
+
+        deleted = store.remove_source("S", "p", "O", "paper:x")
+        assert deleted is False
+        t = store.get(subject="S")[0]
+        assert t.sources == ["idea:y"]
+        assert t.confidence == 0.4          # recomputed, not stale 0.9
+    finally:
+        os.unlink(path)
+
+
+def test_remove_source_preserves_decay_timestamp():
+    # Retracting a contributor must not reset the aging clock on the survivor.
+    store, path = _temp_triple_store()
+    try:
+        store.add("S", "p", "O", confidence=0.9, source="paper:x")
+        store.add("S", "p", "O", confidence=0.4, source="idea:y")
+        before = store.get(subject="S")[0].updated_at
+        time.sleep(0.01)
+        store.remove_source("S", "p", "O", "paper:x")
+        after = store.get(subject="S")[0].updated_at
+        assert after == before              # updated_at untouched by retraction
+    finally:
+        os.unlink(path)
+
+
+def test_per_source_confidence_is_independent():
+    # Re-asserting one source at higher confidence lifts the max; the other
+    # source's strength is untouched and resurfaces if the stronger is removed.
+    store, path = _temp_triple_store()
+    try:
+        store.add("S", "p", "O", confidence=0.5, source="paper:x")
+        store.add("S", "p", "O", confidence=0.3, source="idea:y")
+        store.add("S", "p", "O", confidence=0.8, source="idea:y")   # idea strengthens
+        assert store.get(subject="S")[0].confidence == 0.8
+        store.remove_source("S", "p", "O", "idea:y")
+        assert store.get(subject="S")[0].confidence == 0.5          # paper's own value
+    finally:
+        os.unlink(path)
+
+
+def test_remove_source_deletes_triple_when_last_source():
+    store, path = _temp_triple_store()
+    try:
+        store.add("S", "p", "O", source="idea:y")
+        deleted = store.remove_source("S", "p", "O", "idea:y")
+        assert deleted is True
+        assert store.get(subject="S") == []
+    finally:
+        os.unlink(path)
+
+
+def test_decay_persists_for_sourced_triples_after_resync():
+    # Decay must hit the per-source rows, not just the cache — otherwise a
+    # later add/remove_source recompute would restore the pre-decay value.
+    store, path = _temp_triple_store()
+    try:
+        store.add("S", "p", "O", confidence=0.9, source="paper:x")
+        store.add("S", "p", "O", confidence=0.6, source="idea:y")
+        # Force decay by backdating updated_at well past the window.
+        import sqlite3
+        conn = sqlite3.connect(path)
+        conn.execute("UPDATE triples SET updated_at = 0, decay_rate = 0.5")
+        conn.commit()
+        conn.close()
+
+        store.apply_decay(max_age_days=1)
+        decayed = store.get(subject="S")[0].confidence
+        assert decayed < 0.9                      # actually decayed
+
+        # A later remove_source recompute must NOT resurrect pre-decay 0.9.
+        store.remove_source("S", "p", "O", "idea:y")
+        assert store.get(subject="S")[0].confidence == pytest.approx(decayed)
+    finally:
+        os.unlink(path)
+
+
+def test_anonymous_evidence_survives_a_later_sourced_add():
+    # An anonymous assertion must not be silently dropped when a sourced
+    # duplicate arrives: its confidence is kept and it still supports the fact.
+    store, path = _temp_triple_store()
+    try:
+        store.add("S", "p", "O", confidence=0.7)              # anonymous
+        store.add("S", "p", "O", confidence=0.5, source="paper:x")
+        t = store.get(subject="S")[0]
+        assert t.confidence == 0.7                            # anonymous kept
+        assert t.sources == ["paper:x"]                       # display tokens only
+
+        # Removing the named source leaves the fact alive on anonymous support.
+        deleted = store.remove_source("S", "p", "O", "paper:x")
+        assert deleted is False
+        assert store.get(subject="S")[0].confidence == 0.7
+    finally:
+        os.unlink(path)
+
+
+def test_legacy_triples_are_backfilled_into_source_table():
+    # A triple written before triple_sources existed (single source, no rows)
+    # must be backfilled on the next open so remove_source treats it correctly.
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    try:
+        store = TripleStore(path)
+        store.add("S", "p", "O", confidence=0.7, source="paper:x")
+        # Simulate a legacy DB: wipe the provenance table, keep the triples row.
+        import sqlite3
+        conn = sqlite3.connect(path)
+        conn.execute("DELETE FROM triple_sources")
+        conn.commit()
+        conn.close()
+
+        store2 = TripleStore(path)            # _ensure_schema backfills
+        assert store2.remove_source("S", "p", "O", "paper:x") is True
+        assert store2.get(subject="S") == []
+    finally:
+        os.unlink(path)
+
+
+def test_hard_remove_prunes_orphan_source_rows():
+    store, path = _temp_triple_store()
+    try:
+        store.add("S", "p", "O", confidence=0.7, source="paper:x")
+        store.remove("S", "p", "O")
+        import sqlite3
+        conn = sqlite3.connect(path)
+        n = conn.execute("SELECT COUNT(*) FROM triple_sources").fetchone()[0]
+        conn.close()
+        assert n == 0                          # no orphaned provenance rows
+    finally:
+        os.unlink(path)
+
+
+def test_remove_source_noop_for_unknown_source_or_triple():
+    store, path = _temp_triple_store()
+    try:
+        store.add("S", "p", "O", source="paper:x")
+        assert store.remove_source("S", "p", "O", "idea:missing") is False
+        assert store.remove_source("nope", "p", "O", "paper:x") is False
+        # original triple untouched
+        assert store.get(subject="S")[0].sources == ["paper:x"]
+    finally:
+        os.unlink(path)
+
+
+def test_remove_source_normalizes_predicate():
+    # remove_source must match the same normalized predicate add() stored.
+    store, path = _temp_triple_store()
+    try:
+        store.add("S", "Is Applicable To", "O", source="paper:x")
+        # query/removal with a differently-cased/spaced predicate still matches
+        assert store.remove_source("S", "applicable_to", "O", "paper:x") is True
+        assert store.get(subject="S") == []
     finally:
         os.unlink(path)
 
