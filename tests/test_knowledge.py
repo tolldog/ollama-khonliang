@@ -11,6 +11,7 @@ from khonliang.knowledge.librarian import Librarian
 from khonliang.knowledge.reports import ReportBuilder
 from khonliang.knowledge.store import KnowledgeEntry, KnowledgeStore, Tier
 from khonliang.knowledge.triples import (
+    Triple,
     TripleStore,
     split_sources,
 )
@@ -519,6 +520,66 @@ def test_per_source_confidence_is_independent():
         assert store.get(subject="S")[0].confidence == 0.8
         store.remove_source("S", "p", "O", "idea:y")
         assert store.get(subject="S")[0].confidence == 0.5          # paper's own value
+    finally:
+        os.unlink(path)
+
+
+def test_get_exposes_per_source_confidence(tmp_path):
+    # FR cecbd365: a co-sourced triple must surface EACH source's own
+    # confidence, not just the aggregate max, so the concept matrix can credit a
+    # weaker paper at its real strength.
+    store, path = _temp_triple_store()
+    try:
+        store.add("S", "p", "O", confidence=0.9, source="paper:x")
+        store.add("S", "p", "O", confidence=0.4, source="idea:y")
+        t = store.get(subject="S")[0]
+        assert t.source_confidences == {"paper:x": 0.9, "idea:y": 0.4}
+        assert t.confidence_for("paper:x") == 0.9
+        assert t.confidence_for("idea:y") == 0.4
+        assert t.confidence == 0.9  # aggregate cache unchanged (max)
+    finally:
+        os.unlink(path)
+
+
+def test_confidence_for_unknown_source_falls_back_to_aggregate(tmp_path):
+    store, path = _temp_triple_store()
+    try:
+        store.add("S", "p", "O", confidence=0.7, source="paper:x")
+        t = store.get(subject="S")[0]
+        assert t.confidence_for("paper:never") == 0.7  # falls back to aggregate
+    finally:
+        os.unlink(path)
+
+
+def test_directly_constructed_triple_confidence_for_uses_aggregate():
+    # No store read path populated source_confidences → confidence_for must not
+    # KeyError; it degrades to the aggregate confidence.
+    t = Triple(subject="S", predicate="p", object="O", confidence=0.6)
+    assert t.source_confidences == {}
+    assert t.confidence_for("anything") == 0.6
+
+
+def test_anonymous_source_excluded_from_per_source_map(tmp_path):
+    # An anonymous ("") contributor carries confidence but no display token, so
+    # it must not appear in source_confidences (mirrors Triple.sources).
+    store, path = _temp_triple_store()
+    try:
+        store.add("S", "p", "O", confidence=0.5)               # anonymous ""
+        store.add("S", "p", "O", confidence=0.8, source="paper:x")
+        t = store.get(subject="S")[0]
+        assert t.source_confidences == {"paper:x": 0.8}
+        assert "" not in t.source_confidences
+    finally:
+        os.unlink(path)
+
+
+def test_search_also_populates_per_source_confidence(tmp_path):
+    store, path = _temp_triple_store()
+    try:
+        store.add("Subject", "p", "Object", confidence=0.9, source="paper:x")
+        store.add("Subject", "p", "Object", confidence=0.4, source="idea:y")
+        t = store.search("Subject")[0]
+        assert t.confidence_for("idea:y") == 0.4
     finally:
         os.unlink(path)
 

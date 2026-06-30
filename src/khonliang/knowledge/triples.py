@@ -23,7 +23,7 @@ import logging
 import re
 import sqlite3
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -76,6 +76,12 @@ class Triple:
     created_at: float = 0.0
     updated_at: float = 0.0
     access_count: int = 0
+    # Per-source confidence ({source_token: confidence}), populated by the store
+    # read paths (get / search) from the ``triple_sources`` side-table. Empty for
+    # directly-constructed triples and for the anonymous ("") contributor. Use
+    # ``confidence_for(source)`` rather than reading this directly so callers get
+    # a sensible fallback to the aggregate confidence. (FR cecbd365)
+    source_confidences: Dict[str, float] = field(default_factory=dict)
 
     @property
     def sources(self) -> List[str]:
@@ -87,6 +93,17 @@ class Triple:
         on-disk encoding.
         """
         return split_sources(self.source)
+
+    def confidence_for(self, source: str) -> float:
+        """Confidence this specific ``source`` asserts for the triple.
+
+        Falls back to the triple's aggregate ``confidence`` (the max across all
+        sources) when per-source data is unavailable — e.g. a triple built
+        outside the store read paths, or a source not present in the
+        side-table. This lets a co-sourced fact credit each contributor with
+        its own strength instead of the strongest contributor's. (FR cecbd365)
+        """
+        return self.source_confidences.get(source, self.confidence)
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize triple to a plain dict."""
@@ -374,7 +391,7 @@ class TripleStore:
                 )
             conn.commit()
 
-            return [self._row_to_triple(r) for r in rows]
+            return self._rows_to_triples(conn, rows)
         finally:
             conn.close()
 
@@ -389,7 +406,7 @@ class TripleStore:
                 "ORDER BY confidence DESC LIMIT ?",
                 (pattern, pattern, pattern, limit),
             ).fetchall()
-            return [self._row_to_triple(r) for r in rows]
+            return self._rows_to_triples(conn, rows)
         finally:
             conn.close()
 
@@ -612,3 +629,43 @@ class TripleStore:
             updated_at=row["updated_at"],
             access_count=row["access_count"],
         )
+
+    def _rows_to_triples(
+        self, conn: sqlite3.Connection, rows: List[sqlite3.Row]
+    ) -> List[Triple]:
+        """Build triples from ``triples`` rows and attach per-source confidences.
+
+        One batched ``triple_sources`` query for the whole result set (not N+1),
+        so ``Triple.source_confidences`` / ``confidence_for`` are populated for
+        every read. Rows must carry an ``id`` column (``SELECT *`` / explicit id).
+        """
+        triples = [self._row_to_triple(r) for r in rows]
+        ids = [r["id"] for r in rows]
+        conf_map = self._source_confidence_map(conn, ids)
+        for r, t in zip(rows, triples):
+            t.source_confidences = conf_map.get(r["id"], {})
+        return triples
+
+    @staticmethod
+    def _source_confidence_map(
+        conn: sqlite3.Connection, triple_ids: List[int]
+    ) -> Dict[int, Dict[str, float]]:
+        """``{triple_id: {source_token: confidence}}`` for the given triples.
+
+        Anonymous ("") contributor rows are excluded — they carry confidence but
+        no display token, mirroring ``Triple.sources``. Queried in chunks to stay
+        under SQLite's bound-parameter limit.
+        """
+        out: Dict[int, Dict[str, float]] = {}
+        chunk = 500
+        for i in range(0, len(triple_ids), chunk):
+            batch = triple_ids[i:i + chunk]
+            placeholders = ",".join("?" * len(batch))
+            cur = conn.execute(
+                "SELECT triple_id, source, confidence FROM triple_sources "
+                f"WHERE source != '' AND triple_id IN ({placeholders})",  # nosec B608
+                batch,
+            )
+            for row in cur:
+                out.setdefault(row["triple_id"], {})[row["source"]] = row["confidence"]
+        return out
