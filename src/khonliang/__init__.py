@@ -37,6 +37,13 @@ from khonliang.openai_client import OpenAIClient
 from khonliang.personalities import PersonalityConfig, PersonalityRegistry
 from khonliang.pool import ModelPool
 from khonliang.protocols import LLMClient
+from khonliang.registry import (
+    DescribedRegistry,
+    ExpandedItem,
+    IndexEntry,
+    InMemoryDescribedAdapter,
+    ItemAdapter,
+)
 from khonliang.roles import BaseRole, BaseRouter
 
 __all__ = [
