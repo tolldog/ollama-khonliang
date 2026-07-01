@@ -69,6 +69,12 @@ __all__ = [
     "LLMModelNotFoundError",
     "LLMRateLimitError",
     "LLMCooldownError",
+    # Described-registry primitive
+    "DescribedRegistry",
+    "ItemAdapter",
+    "IndexEntry",
+    "ExpandedItem",
+    "InMemoryDescribedAdapter",
 ]
 
 try:

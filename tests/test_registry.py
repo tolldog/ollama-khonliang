@@ -170,6 +170,26 @@ async def test_expand_unknown_id_absent():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.asyncio
+async def test_index_negative_limit_rejected():
+    reg = DescribedRegistry(InMemoryDescribedAdapter(_sample_items()))
+    with pytest.raises(ValueError):
+        await reg.index(limit=-1)
+
+
+def test_registry_types_in_package_all():
+    import khonliang
+
+    for name in (
+        "DescribedRegistry",
+        "ItemAdapter",
+        "IndexEntry",
+        "ExpandedItem",
+        "InMemoryDescribedAdapter",
+    ):
+        assert name in khonliang.__all__
+
+
 def test_bad_max_index_rejected():
     with pytest.raises(ValueError):
         DescribedRegistry(InMemoryDescribedAdapter([]), max_index=0)

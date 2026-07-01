@@ -140,6 +140,8 @@ class DescribedRegistry:
         self, scope: Optional[str] = None, limit: Optional[int] = None
     ) -> List[IndexEntry]:
         """Cheap catalog. ``limit`` (if given) is min'd with the hard cap."""
+        if limit is not None and limit < 0:
+            raise ValueError("limit must be >= 0")
         effective_limit = self.max_index if limit is None else min(limit, self.max_index)
         entries = await self.adapter.catalog(scope=scope, limit=effective_limit)
         return list(entries)[:effective_limit]
