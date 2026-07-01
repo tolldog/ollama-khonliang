@@ -885,9 +885,14 @@ class KhonliangMCPServer:
 
         return tools
 
-    @staticmethod
-    def _infer_category(tool_name: str) -> str:
-        """Infer category from tool name prefix."""
+    def _infer_category(self, tool_name: str) -> str:
+        """Infer category from the registered guides, then the tool-name prefix."""
+        # Any registered guide — default OR custom via add_guide() — is meta, so
+        # the catalog lists it once under GUIDES and suppresses it from OTHER
+        # (without this, custom guides like research_guide / genealogy_guide
+        # double-list in brief/full catalog output).
+        if tool_name in self.guide_tools:
+            return "meta"
         prefixes = {
             "knowledge": "knowledge",
             "triple": "triples",
