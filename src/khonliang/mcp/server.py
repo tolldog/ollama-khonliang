@@ -163,7 +163,18 @@ class KhonliangMCPServer:
         def knowledge_ingest(
             title: str, content: str, scope: str = "global"
         ) -> str:
-            """Add content to the knowledge store as Tier 2 (imported)."""
+            """Add content to the knowledge store as Tier 2 (imported).
+
+            scope="all" is rejected: it is knowledge_search's
+            cross-scope sentinel, so entries stored under it could
+            never be queried in isolation.
+            """
+            if scope == "all":
+                return (
+                    "Ingestion failed: scope 'all' is reserved "
+                    "(knowledge_search cross-scope sentinel); "
+                    "use a domain tag or 'global'"
+                )
             try:
                 from khonliang.knowledge.store import KnowledgeEntry, Tier
 

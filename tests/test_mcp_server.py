@@ -224,6 +224,17 @@ class TestKnowledgeSearchTool:
         assert "global1" in text
         assert "proj1" not in text
 
+    @pytest.mark.asyncio
+    async def test_ingest_rejects_reserved_all_scope(self, server_with_knowledge):
+        app = server_with_knowledge.create_app()
+        result = await app.call_tool(
+            "knowledge_ingest",
+            {"title": "t", "content": "unscopable payload", "scope": "all"},
+        )
+        text = result[0].text if hasattr(result[0], "text") else str(result[0])
+        assert "reserved" in text
+        assert server_with_knowledge.knowledge_store.search("unscopable") == []
+
 
 class TestResourceRegistration:
     @pytest.mark.asyncio
