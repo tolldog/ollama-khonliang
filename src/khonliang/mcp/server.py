@@ -104,11 +104,18 @@ class KhonliangMCPServer:
         @mcp.tool()
         def knowledge_search(
             query: str,
-            scope: str = "global",
+            scope: str = "all",
             max_results: int = 5,
             detail: str = "compact",
         ) -> str:
             """Search the knowledge store.
+
+            scope="all" (default): search entries in every scope.
+            Any other scope value: only entries in that scope plus
+            'global' entries. "all" is reserved by this tool — an
+            entry whose scope is literally named "all" cannot be
+            queried in isolation here (avoid it as a scope name,
+            like "global" it has special meaning).
 
             detail="compact": hits|ids|scope|top (for agent loops)
             detail="brief": one line per result (id | title)
@@ -121,7 +128,8 @@ class KhonliangMCPServer:
                 truncate,
             )
 
-            results = store.search(query, scope=scope, limit=max_results)
+            scope_filter = None if scope == "all" else scope
+            results = store.search(query, scope=scope_filter, limit=max_results)
             if not results:
                 return compact_summary({"hits": 0, "query": query, "scope": scope})
 
@@ -155,7 +163,18 @@ class KhonliangMCPServer:
         def knowledge_ingest(
             title: str, content: str, scope: str = "global"
         ) -> str:
-            """Add content to the knowledge store as Tier 2 (imported)."""
+            """Add content to the knowledge store as Tier 2 (imported).
+
+            scope="all" is rejected: it is knowledge_search's
+            cross-scope sentinel, so entries stored under it could
+            never be queried in isolation.
+            """
+            if scope == "all":
+                return (
+                    "Ingestion failed: scope 'all' is reserved "
+                    "(knowledge_search cross-scope sentinel); "
+                    "use a domain tag or 'global'"
+                )
             try:
                 from khonliang.knowledge.store import KnowledgeEntry, Tier
 

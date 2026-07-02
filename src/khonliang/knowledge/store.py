@@ -12,6 +12,7 @@ Schema is auto-created on first use.
 
 import json
 import logging
+import re
 import sqlite3
 import time
 from dataclasses import dataclass, field
@@ -376,9 +377,15 @@ class KnowledgeStore:
         Returns:
             Entries sorted by relevance (BM25 score).
         """
+        # Split each whitespace token on chars FTS can't take bare
+        # (anything outside alnum/_/-), so 'owner/repo' yields 'owner'
+        # and 'repo' instead of being dropped whole. Subtokens of
+        # length <= 1 are noise (e.g. the digits of 'v1.2.3').
         words = [
-            w for w in query.split()
-            if all(c.isalnum() or c in ("_", "-") for c in w) and len(w) > 1
+            w
+            for token in query.split()
+            for w in re.split(r"[^\w-]+", token)
+            if len(w) > 1
         ]
         if not words:
             return []
