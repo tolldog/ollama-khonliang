@@ -104,11 +104,15 @@ class KhonliangMCPServer:
         @mcp.tool()
         def knowledge_search(
             query: str,
-            scope: str = "global",
+            scope: str = "all",
             max_results: int = 5,
             detail: str = "compact",
         ) -> str:
             """Search the knowledge store.
+
+            scope="all" (default): search entries in every scope.
+            Any other scope value: only entries in that scope plus
+            'global' entries.
 
             detail="compact": hits|ids|scope|top (for agent loops)
             detail="brief": one line per result (id | title)
@@ -121,7 +125,8 @@ class KhonliangMCPServer:
                 truncate,
             )
 
-            results = store.search(query, scope=scope, limit=max_results)
+            scope_filter = None if scope == "all" else scope
+            results = store.search(query, scope=scope_filter, limit=max_results)
             if not results:
                 return compact_summary({"hits": 0, "query": query, "scope": scope})
 

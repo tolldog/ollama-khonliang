@@ -176,6 +176,55 @@ class TestToolRegistration:
         assert "knowledge_search" not in tool_names
 
 
+class TestKnowledgeSearchTool:
+    @pytest.fixture
+    def server_with_knowledge(self, tmp_path):
+        from khonliang.knowledge.store import KnowledgeEntry, KnowledgeStore, Tier
+        from khonliang.mcp.server import KhonliangMCPServer
+
+        store = KnowledgeStore(str(tmp_path / "knowledge.db"))
+        store.add(KnowledgeEntry(
+            id="global1",
+            tier=Tier.IMPORTED,
+            title="Global widget notes",
+            content="Widgets are documented globally.",
+            scope="global",
+            source="test",
+        ))
+        store.add(KnowledgeEntry(
+            id="proj1",
+            tier=Tier.IMPORTED,
+            title="Project widget notes",
+            content="Widgets used by the alpha project.",
+            scope="alpha",
+            source="test",
+        ))
+        return KhonliangMCPServer(knowledge_store=store)
+
+    @pytest.mark.asyncio
+    async def test_default_scope_searches_all_scopes(self, server_with_knowledge):
+        app = server_with_knowledge.create_app()
+        result = await app.call_tool(
+            "knowledge_search", {"query": "widget", "detail": "brief"}
+        )
+        text = result[0].text if hasattr(result[0], "text") else str(result[0])
+        assert "global1" in text
+        assert "proj1" in text
+
+    @pytest.mark.asyncio
+    async def test_explicit_scope_filters_to_scope_plus_global(
+        self, server_with_knowledge
+    ):
+        app = server_with_knowledge.create_app()
+        result = await app.call_tool(
+            "knowledge_search",
+            {"query": "widget", "scope": "beta", "detail": "brief"},
+        )
+        text = result[0].text if hasattr(result[0], "text") else str(result[0])
+        assert "global1" in text
+        assert "proj1" not in text
+
+
 class TestResourceRegistration:
     @pytest.mark.asyncio
     async def test_blackboard_resource_registered(self, server_with_blackboard):

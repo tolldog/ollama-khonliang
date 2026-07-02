@@ -60,6 +60,34 @@ def test_add_and_search():
 
     results = store.search("Ohio", scope="toll")
     assert len(results) >= 1
+
+    # scope=None searches across all scopes
+    results = store.search("Ohio")
+    assert {r.scope for r in results} == {"toll", "thomas"}
+    os.unlink(path)
+
+
+def test_search_tokenizes_slash_and_dot_queries():
+    store, path = _temp_store()
+    store.add(KnowledgeEntry(
+        id="repo1",
+        tier=Tier.IMPORTED,
+        title="Repo notes",
+        content="The gadgetlib repo pins release v42 of the toolchain.",
+        scope="global",
+        source="test",
+    ))
+
+    # 'owner/repo' splits into subtokens instead of being dropped whole
+    results = store.search("acme/gadgetlib")
+    assert any(r.id == "repo1" for r in results)
+
+    # dotted versions split too; len<=1 fragments are discarded as noise
+    results = store.search("v42.0.1")
+    assert any(r.id == "repo1" for r in results)
+
+    # a query with no usable tokens still returns [] without error
+    assert store.search("/ .. @ !") == []
     os.unlink(path)
 
 
