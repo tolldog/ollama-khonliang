@@ -112,7 +112,10 @@ class KhonliangMCPServer:
 
             scope="all" (default): search entries in every scope.
             Any other scope value: only entries in that scope plus
-            'global' entries.
+            'global' entries. "all" is reserved by this tool — an
+            entry whose scope is literally named "all" cannot be
+            queried in isolation here (avoid it as a scope name,
+            like "global" it has special meaning).
 
             detail="compact": hits|ids|scope|top (for agent loops)
             detail="brief": one line per result (id | title)
